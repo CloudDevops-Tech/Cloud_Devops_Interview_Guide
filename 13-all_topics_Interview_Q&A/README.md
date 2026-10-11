@@ -4,7 +4,7 @@
 
 ### Topic-wise Questions, Answers, Differences, Scenarios & Command Examples
 
-`Git` · `Linux` · `Networking` · `CI/CD` · `Terraform` · `Docker` · `Kubernetes` · `Python`
+`Git` · `Linux` · `Networking` · `CI/CD` · `Terraform` · `Docker` · `Kubernetes` · `Observability` · `AWS` · `Ansible` · `Bash` · `Python`
 
 </div>
 
@@ -14,17 +14,1564 @@
 
 | # | Topic | Questions |
 |---|-------|-----------|
-| 1 | [🔀 Git](#git) | 17 |
-| 2 | [🐧 Linux](#linux) | 15 |
-| 3 | [🌐 Networking](#networking) | 9 |
-| 4 | [⚙️ CI/CD](#cicd) | 15 |
-| 5 | [🏗️ Terraform](#terraform) | 2 |
-| 6 | [🐳 Docker](#docker) | 12 |
-| 7 | [☸️ Kubernetes](#kubernetes) | 29 |
-| 8 | [📊 Observability](#observability) | Coming soon |
-| 9 | [☁️ AWS](#aws) | Coming soon |
-| 10 | [🔷 Azure](#azure) | Coming soon |
-| 11 | [🐍 Python](#python) | 3 |
+| 1 | [☁️ AWS](#aws) | 41 |
+| 2 | [🔀 Git](#git) | 17 |
+| 3 | [🐧 Linux](#linux) | 15 |
+| 4 | [🌐 Networking](#networking) | 9 |
+| 5 | [⚙️ CI/CD](#cicd) | 15 |
+| 6 | [🏗️ Terraform](#terraform) | 19 |
+| 7 | [🐳 Docker](#docker) | 12 |
+| 8 | [☸️ Kubernetes](#kubernetes) | 29 |
+| 9 | [📊 Observability](#observability) | 17 |
+| 10 | [🅰️ Ansible](#ansible) | 16 |
+| 11 | [📜 Bash Scripting](#bash-scripting) | 17 |
+| 12 | [🐍 Python](#python) | 3 |
+
+
+<a id="aws"></a>
+# ☁️ TOPIC 1: AWS
+
+> VPC networking, EC2 & Auto Scaling, load balancers, Route 53, IAM, S3, RDS, Lambda, API Gateway, CloudFront, ACM, monitoring & audit services, KMS, EventBridge, Secrets Manager, Systems Manager, ENI and Boto3.
+
+<br>
+
+---
+
+### Q1. What is a VPC and what are its main components? How do you design one for production?
+
+#### 📌 Short Explanation
+The VPC is the foundation of every AWS architecture. Interviewers check whether you understand isolation, CIDR planning, and high availability.
+
+#### ✅ Answer
+A **VPC (Virtual Private Cloud)** is a logically isolated virtual network in AWS where you control IP ranges, subnets, routing, and security. A production VPC spans **at least two Availability Zones** with public and private subnets.
+
+#### 📖 Detailed Explanation
+
+**🔹 Main components**
+
+| Component | Purpose |
+|-----------|---------|
+| **CIDR block** | IP range of the VPC (e.g., `10.0.0.0/16`) |
+| **Subnets** | Segments of the VPC, each inside one AZ |
+| **Route tables** | Decide where network traffic is directed |
+| **Internet Gateway (IGW)** | Internet access for public subnets |
+| **NAT Gateway** | Outbound-only internet for private subnets |
+| **Security Groups / NACLs** | Instance-level and subnet-level firewalls |
+| **VPC Endpoints** | Private access to AWS services |
+| **Flow Logs** | Capture IP traffic metadata for troubleshooting and audit |
+
+**🔹 Typical production design**
+```text
+VPC 10.0.0.0/16
+├── AZ-a: public 10.0.1.0/24  | private-app 10.0.11.0/24 | private-db 10.0.21.0/24
+└── AZ-b: public 10.0.2.0/24  | private-app 10.0.12.0/24 | private-db 10.0.22.0/24
+```
+- **Public:** ALB, NAT Gateway
+- **Private-app:** EC2 / EKS / ECS workloads
+- **Private-db:** RDS (no internet route)
+
+**🔹 Best practices**
+- Plan CIDRs so they **don't overlap** with on-premises or other VPCs (needed for peering/VPN)
+- Enable **VPC Flow Logs**
+- Use **VPC Endpoints** for S3/DynamoDB to avoid NAT cost
+- Keep databases in private subnets
+
+<br>
+
+---
+
+### Q2. How do Subnets work? How many IPs are reserved and how do you size them?
+
+#### 📌 Short Explanation
+Tests practical IP planning — a very common cause of production issues, especially with EKS.
+
+#### ✅ Answer
+A subnet is a range of the VPC CIDR placed in a **single Availability Zone**. AWS **reserves 5 IP addresses** in every subnet.
+
+#### 📖 Detailed Explanation
+
+**🔹 Reserved IPs (example `10.0.1.0/24`)**
+
+| IP | Use |
+|----|-----|
+| `10.0.1.0` | Network address |
+| `10.0.1.1` | VPC router |
+| `10.0.1.2` | DNS server |
+| `10.0.1.3` | Reserved for future use |
+| `10.0.1.255` | Broadcast (not supported, but reserved) |
+
+So a `/24` (256 IPs) gives **251 usable IPs**.
+
+**🔹 Sizing tips**
+- Smallest subnet: `/28` (16 IPs, 11 usable); largest: `/16`
+- Leave room for growth; **EKS pods consume VPC IPs** (with VPC CNI), so give EKS subnets larger ranges (`/20` or bigger)
+- ALB needs at least 8 free IPs per subnet
+- A subnet **cannot span AZs** — create one per AZ for HA
+
+**🔹 Public vs Private subnet**
+A subnet is **public** only if its route table has `0.0.0.0/0 → Internet Gateway`. Otherwise it is private.
+
+<br>
+
+---
+
+### Q3. Scenario: An EC2 instance in a public subnet cannot reach the internet. How do you troubleshoot using Route Tables?
+
+#### 📌 Short Explanation
+A classic networking scenario that tests the whole path: IGW, route table, public IP, SG, NACL.
+
+#### ✅ Answer
+Verify the **route table** has `0.0.0.0/0 → igw-xxxx`, the instance has a **public/Elastic IP**, the IGW is attached, and the **SG/NACL** allow traffic.
+
+#### 📖 Detailed Explanation
+
+**🔹 Route Tables basics**
+- Every subnet is associated with exactly one route table (the **main** one if not explicitly associated)
+- AWS uses **longest prefix match**; the `local` route (VPC CIDR) always exists and cannot be removed
+
+| Destination | Target |
+|-------------|--------|
+| `10.0.0.0/16` | `local` |
+| `0.0.0.0/0` | `igw-0abc123` |
+
+**🔹 Checklist**
+1. Is an **IGW attached** to the VPC?
+2. Does the subnet's route table have `0.0.0.0/0 → IGW`?
+3. Does the instance have a **public IPv4 or Elastic IP**?
+4. Does the **Security Group** allow outbound traffic (default: allow all)?
+5. Does the **NACL** allow outbound and **inbound ephemeral ports (1024–65535)**?
+6. Is there an OS-level firewall or a wrong default gateway?
+
+```bash
+aws ec2 describe-route-tables --filters Name=association.subnet-id,Values=subnet-0123
+aws ec2 describe-internet-gateways --filters Name=attachment.vpc-id,Values=vpc-0123
+```
+
+**🔹 Use Reachability Analyzer** to trace the path between source and destination and see exactly which component blocks it.
+
+<br>
+
+---
+
+### Q4. What is the difference between an Internet Gateway and a NAT Gateway?
+
+#### 📌 Short Explanation
+One of the most frequently asked AWS networking questions.
+
+#### ✅ Answer
+- **Internet Gateway (IGW):** enables **two-way** internet communication for resources with public IPs.
+- **NAT Gateway:** enables **outbound-only** internet access for private instances; the internet cannot initiate connections to them.
+
+#### 📖 Detailed Explanation
+
+| Aspect | Internet Gateway | NAT Gateway |
+|--------|-----------------|-------------|
+| **Direction** | Inbound + Outbound | Outbound only |
+| **Used by** | Public subnets | Private subnets |
+| **Lives in** | Attached to the VPC | Placed **inside a public subnet** |
+| **Needs Elastic IP** | No (instance needs a public IP) | Yes (for public NAT gateway) |
+| **Availability** | Highly available, managed by AWS | Scoped to **one AZ** |
+| **Cost** | Free | Hourly charge + per-GB processing |
+| **Route in table** | `0.0.0.0/0 → igw-xxx` | `0.0.0.0/0 → nat-xxx` |
+
+**🔹 Traffic flow for a private instance**
+```text
+Private EC2 → Private route table → NAT Gateway (public subnet) → IGW → Internet
+```
+
+**🔹 NAT Gateway vs NAT Instance**
+NAT Gateway is managed, scales automatically (up to 100 Gbps), and needs no patching. NAT Instance is self-managed but cheaper for tiny workloads.
+
+<br>
+
+---
+
+### Q5. Scenario: Your NAT Gateway bill is very high, or private instances lose internet when one AZ fails. How do you fix it?
+
+#### 📌 Short Explanation
+Tests cost optimization and high-availability design around NAT.
+
+#### ✅ Answer
+Use **one NAT Gateway per AZ** (each AZ's private route table points to its own NAT) for resilience, and use **VPC Endpoints** to keep AWS-service traffic off the NAT to reduce cost.
+
+#### 📖 Detailed Explanation
+
+**🔹 Problem 1: Single NAT is an AZ-level single point of failure**
+- If NAT in AZ-a fails, private subnets in AZ-b that route to it lose internet
+- Also incurs **cross-AZ data transfer charges**
+
+**Fix:** one NAT per AZ with separate route tables.
+
+**🔹 Problem 2: High data processing cost**
+Find top talkers with VPC Flow Logs, then:
+- Add **S3 and DynamoDB Gateway Endpoints** (free)
+- Add **Interface Endpoints** for ECR, CloudWatch, STS, SSM, etc.
+- Pull container images from **ECR via endpoints**, not the internet
+- Cache dependencies, use a proxy/mirror for package downloads
+
+| Action | Effect |
+|--------|--------|
+| S3 Gateway Endpoint | Removes S3 traffic from NAT (free) |
+| NAT per AZ | HA + avoids cross-AZ charges |
+| Flow Logs analysis | Identify unexpected heavy traffic |
+
+> 💡 For non-production environments, consider a single NAT (or scheduled scale-down) to save cost, accepting the lower availability.
+
+<br>
+
+---
+
+### Q6. What is the difference between Security Groups and NACLs?
+
+#### 📌 Short Explanation
+A must-know comparison. It tests stateful vs stateless firewall concepts.
+
+#### ✅ Answer
+- **Security Group:** stateful firewall at the **instance/ENI** level, **allow rules only**.
+- **NACL:** stateless firewall at the **subnet** level, supports **allow and deny** rules.
+
+#### 📖 Detailed Explanation
+
+| Feature | Security Group | Network ACL |
+|---------|----------------|-------------|
+| **Level** | ENI / instance | Subnet |
+| **State** | **Stateful** (return traffic auto-allowed) | **Stateless** (must allow both directions) |
+| **Rules** | Allow only | Allow and Deny |
+| **Rule evaluation** | All rules evaluated together | In **number order**, first match wins |
+| **Default** | Deny all inbound, allow all outbound | Default NACL allows all |
+| **Reference other SGs** | ✅ Yes | ❌ No (CIDR only) |
+| **Applies to** | Only attached resources | All resources in the subnet |
+
+**🔹 Example: SG chaining (best practice)**
+```text
+ALB-SG:  inbound 443 from 0.0.0.0/0
+App-SG:  inbound 8080 from ALB-SG
+DB-SG:   inbound 3306 from App-SG
+```
+
+**🔹 When to use NACL**
+- Block a **specific malicious IP/CIDR** (SGs can't deny)
+- Add a coarse subnet-wide guardrail
+
+> **Key takeaway:** SG = primary, fine-grained control. NACL = optional extra layer, mainly for explicit denies.
+
+<br>
+
+---
+
+### Q7. Scenario: You cannot reach an application on port 80 on an EC2 instance. How do you tell whether the Security Group or NACL is the cause?
+
+#### 📌 Short Explanation
+Tests systematic troubleshooting across layers instead of guessing.
+
+#### ✅ Answer
+Work from the instance outward: app listening → OS firewall → Security Group → NACL → route table → public IP/DNS. Use **VPC Flow Logs** (`ACCEPT`/`REJECT`) to identify the blocking layer.
+
+#### 📖 Detailed Explanation
+
+**🔹 Step 1: Is the app listening?**
+```bash
+ss -tulnp | grep :80
+curl -I localhost
+```
+
+**🔹 Step 2: Security Group** — inbound rule for TCP 80 from the client's source?
+
+**🔹 Step 3: NACL** — remember it's stateless:
+- Inbound: allow TCP 80
+- Outbound: allow **ephemeral ports 1024–65535** for the response
+- Check no lower-numbered **DENY** rule matches first
+
+**🔹 Step 4: Route table / IGW / public IP** (see earlier scenario)
+
+**🔹 Step 5: Read Flow Logs**
+```text
+... 203.0.113.5 10.0.1.25 51234 80 6 ... REJECT OK
+```
+- `REJECT` on inbound only with SG fine → likely NACL
+- Traffic accepted inbound but reply rejected → NACL missing ephemeral outbound rule
+
+| Symptom | Likely cause |
+|---------|-------------|
+| `Connection timed out` | SG/NACL/route blocking packets |
+| `Connection refused` | Reached the host, but nothing is listening on the port |
+
+<br>
+
+---
+
+### Q8. What is VPC Peering? What are its limitations, and how does it differ from Transit Gateway?
+
+#### 📌 Short Explanation
+Tests multi-VPC connectivity design knowledge.
+
+#### ✅ Answer
+**VPC Peering** is a private, one-to-one network connection between two VPCs (same or different account/region). It is **non-transitive** and requires **non-overlapping CIDRs**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Setup steps**
+1. Requester creates a peering connection; accepter accepts it
+2. Add **routes** in both VPCs' route tables to the peer CIDR
+3. Update **Security Groups** (and NACLs) to allow traffic
+
+**🔹 Limitations**
+- ❌ **No transitive routing** (A↔B and B↔C does not give A↔C)
+- ❌ **No overlapping CIDRs**
+- ❌ No edge-to-edge routing (can't use the peer's IGW, NAT, VPN, or Direct Connect)
+- Becomes unmanageable at scale (full mesh = N×(N−1)/2 connections)
+
+**🔹 Peering vs Transit Gateway**
+
+| Aspect | VPC Peering | Transit Gateway |
+|--------|-------------|-----------------|
+| **Topology** | Point-to-point mesh | Hub-and-spoke |
+| **Transitive routing** | ❌ No | ✅ Yes |
+| **Scale** | Few VPCs | Hundreds of VPCs, VPNs, Direct Connect |
+| **Cost** | No hourly fee (data transfer charged) | Hourly attachment + per-GB fee |
+| **Bandwidth** | No bottleneck | Per-attachment limits |
+
+```bash
+aws ec2 create-vpc-peering-connection --vpc-id vpc-aaa --peer-vpc-id vpc-bbb
+aws ec2 accept-vpc-peering-connection --vpc-peering-connection-id pcx-123
+```
+
+<br>
+
+---
+
+### Q9. What are VPC Endpoints? Explain Gateway vs Interface endpoints.
+
+#### 📌 Short Explanation
+Tests security and cost awareness — keeping AWS service traffic on the AWS network.
+
+#### ✅ Answer
+**VPC Endpoints** let resources in a VPC reach AWS services **privately**, without going through the internet, NAT, or IGW. There are **Gateway endpoints** (S3, DynamoDB) and **Interface endpoints** (powered by AWS PrivateLink).
+
+#### 📖 Detailed Explanation
+
+| Feature | Gateway Endpoint | Interface Endpoint |
+|---------|------------------|--------------------|
+| **Services** | **S3 and DynamoDB only** | Most AWS services (ECR, SSM, STS, SQS, Secrets Manager…), plus your own PrivateLink services |
+| **Implementation** | Route table entry (prefix list) | **ENI** with private IP in your subnet |
+| **Cost** | **Free** | Hourly + per-GB charge |
+| **Security control** | Endpoint policy | Endpoint policy + **Security Group** |
+| **Reachable from on-prem** | ❌ No | ✅ Yes (via VPN/Direct Connect) |
+
+**🔹 Example: restrict an S3 bucket to a VPC endpoint**
+```json
+{
+  "Effect": "Deny",
+  "Principal": "*",
+  "Action": "s3:*",
+  "Resource": ["arn:aws:s3:::my-bucket", "arn:aws:s3:::my-bucket/*"],
+  "Condition": { "StringNotEquals": { "aws:SourceVpce": "vpce-0abc123" } }
+}
+```
+
+**🔹 Scenario: private subnet with no internet needs SSM Session Manager**
+Create Interface endpoints for `ssm`, `ssmmessages`, and `ec2messages` with Private DNS enabled.
+
+> **Key takeaway:** Endpoints improve **security** (no public path) and reduce **NAT costs**.
+
+<br>
+
+---
+
+### Q10. Explain Elastic Network Interfaces (ENI). How are they different from Elastic IPs, and where are they useful?
+
+#### 📌 Short Explanation
+ENIs are behind almost every AWS networking feature. Interviewers test whether you know their attributes and practical uses.
+
+#### ✅ Answer
+An **ENI** is a virtual network card in a VPC. It carries a primary private IP, optional secondary IPs, a MAC address, and Security Groups, and can be attached to an EC2 instance. An **Elastic IP** is a static public IPv4 address that can be associated with an ENI.
+
+#### 📖 Detailed Explanation
+
+**🔹 ENI attributes**
+- Primary private IPv4 + optional secondary IPs, IPv6 addresses
+- One or more Security Groups
+- MAC address and source/destination check flag
+- Lives in **one subnet / one AZ**
+
+**🔹 Key behaviors**
+- The **primary ENI (eth0)** can't be detached
+- Secondary ENIs can be **hot-attached, detached, and moved** between instances **in the same AZ**
+- The number of ENIs and IPs per instance depends on the **instance type**
+
+**🔹 ENI vs Elastic IP**
+
+| Aspect | ENI | Elastic IP |
+|--------|-----|-----------|
+| **What** | Virtual network card | Static public IPv4 address |
+| **Scope** | Subnet / AZ | Region |
+| **Holds** | Private IPs, SGs, MAC | Just the public address |
+| **Moves** | Between instances in same AZ | Between ENIs/instances |
+
+**🔹 Use cases**
+- **Failover:** move a secondary ENI (with its IP) to a standby instance
+- **Management network:** separate admin traffic from application traffic
+- **Licensing** tied to a MAC address
+- **Network appliances/NAT instances** (disable source/dest check)
+- Interface VPC endpoints, Lambda in VPC, ALB, and RDS all use ENIs under the hood
+
+```bash
+aws ec2 attach-network-interface --network-interface-id eni-0abc --instance-id i-0123 --device-index 1
+```
+
+<br>
+
+---
+
+### Q11. How does Route 53 work? Explain routing policies and the difference between Alias and CNAME records.
+
+#### 📌 Short Explanation
+DNS is critical for availability and traffic management; routing policies are a frequent interview topic.
+
+#### ✅ Answer
+**Route 53** is AWS's highly available DNS service that also supports health checks and domain registration. Routing policies decide *how* DNS answers are returned.
+
+#### 📖 Detailed Explanation
+
+**🔹 Routing policies**
+
+| Policy | Behavior | Use case |
+|--------|----------|----------|
+| **Simple** | One record, one or multiple values | Single resource |
+| **Weighted** | Split traffic by weight | Canary / A-B testing |
+| **Latency** | Lowest-latency region | Multi-region apps |
+| **Failover** | Primary/secondary with health checks | Active-passive DR |
+| **Geolocation** | By user's country/continent | Compliance, localization |
+| **Geoproximity** | By distance, with bias | Shift traffic between regions |
+| **Multivalue** | Up to 8 healthy records | Basic DNS load distribution |
+
+**🔹 Alias vs CNAME**
+
+| Aspect | Alias | CNAME |
+|--------|-------|-------|
+| **Zone apex (`example.com`)** | ✅ Allowed | ❌ Not allowed |
+| **Cost** | **Free** queries to AWS resources | Charged |
+| **Targets** | AWS resources (ALB, CloudFront, S3 website, API Gateway) | Any DNS name |
+| **Health check** | Can evaluate target health | Separate health check |
+
+**🔹 Scenario: active-passive DR**
+Create a primary record (ALB in us-east-1) with a health check and a secondary record (ALB in us-west-2) with **Failover** routing. If the health check fails, Route 53 returns the secondary.
+
+**🔹 Public vs Private hosted zone**
+A **private hosted zone** resolves names only inside associated VPCs (e.g., `db.internal.example.com`).
+
+<br>
+
+---
+
+### Q12. Explain EC2 purchasing options and how you choose between them.
+
+#### 📌 Short Explanation
+Tests cost-optimization knowledge, which is a major part of real AWS work.
+
+#### ✅ Answer
+Use **On-Demand** for unpredictable workloads, **Savings Plans / Reserved Instances** for steady baseline usage, and **Spot** for fault-tolerant, interruptible workloads.
+
+#### 📖 Detailed Explanation
+
+| Option | Commitment | Discount (approx.) | Best for |
+|--------|-----------|--------------------|----------|
+| **On-Demand** | None | 0% | New, spiky, short-term workloads |
+| **Savings Plans** | 1 or 3 years of $/hour spend | Up to ~72% | Steady usage, flexible across instance families |
+| **Reserved Instances** | 1 or 3 years for specific config | Up to ~72% | Predictable workloads (e.g., databases) |
+| **Spot** | None | Up to ~90% | Batch, CI runners, stateless workers, containers |
+| **Dedicated Hosts** | Optional | — | BYOL licensing, compliance |
+
+**🔹 Spot best practices**
+- Handle the **2-minute interruption notice**
+- Diversify across **instance types and AZs**
+- Use an **Auto Scaling Group with mixed instances** (On-Demand base + Spot)
+
+**🔹 Instance families (quick reference)**
+- `t` / `m` — general purpose · `c` — compute · `r` — memory · `i` — storage · `g/p` — GPU
+
+> 💡 A common real-world pattern: **Savings Plans for the baseline, On-Demand for spikes, Spot for batch and non-critical tiers**.
+
+<br>
+
+---
+
+### Q13. Scenario: An EC2 instance fails status checks or becomes unreachable. How do you troubleshoot?
+
+#### 📌 Short Explanation
+Tests whether you understand the two types of status checks and the recovery options.
+
+#### ✅ Answer
+Identify whether it is a **System status check** (AWS hardware/network issue) or an **Instance status check** (OS/config issue), then recover accordingly.
+
+#### 📖 Detailed Explanation
+
+| Check | Detects | Typical fix |
+|-------|---------|-------------|
+| **System status** | Host hardware, power, network problems | **Stop and start** (moves to new hardware) or enable **auto-recovery** |
+| **Instance status** | Kernel panic, bad network config, full disk, OOM | Reboot, fix config, or mount the volume on a rescue instance |
+
+**🔹 Steps**
+1. Check **EC2 Console → Status checks** and **Get system log / instance screenshot**
+2. Check CloudWatch metrics (`CPUUtilization`, `StatusCheckFailed`)
+3. Try **Session Manager** or **EC2 Instance Connect**
+4. If the OS is broken (bad `fstab`, full disk, wrong SSH config):
+   - Stop instance → detach root EBS → attach to a **rescue instance** → fix → reattach → start
+5. Create an **AMI/snapshot** before risky changes
+
+**🔹 Prevent**
+- CloudWatch alarm on `StatusCheckFailed_System` with action **`recover`**
+- Auto Scaling Group health checks to replace bad instances automatically
+
+| Action | Effect |
+|--------|--------|
+| **Reboot** | Same host, same IPs, data kept |
+| **Stop/Start** | New host, new public IP (unless EIP), EBS data kept |
+| **Terminate** | Instance deleted (root EBS deleted by default) |
+
+<br>
+
+---
+
+### Q14. What is an AMI? Explain the Golden AMI approach and the difference between an AMI and a snapshot.
+
+#### 📌 Short Explanation
+Tests your understanding of immutable infrastructure and image management.
+
+#### ✅ Answer
+An **AMI (Amazon Machine Image)** is a template containing the OS, software, and block-device mappings used to launch EC2 instances. A **Golden AMI** is a pre-hardened, pre-baked image used as the standard base.
+
+#### 📖 Detailed Explanation
+
+**🔹 AMI vs Snapshot**
+
+| Aspect | AMI | EBS Snapshot |
+|--------|-----|-------------|
+| **What** | Launchable image (metadata + snapshots) | Point-in-time backup of one volume |
+| **Launch an instance?** | ✅ Yes | ❌ No (create volume or AMI first) |
+| **Contains** | Root + data volume snapshots, launch permissions, mappings | Just volume data |
+
+**🔹 Golden AMI workflow**
+```text
+Base AMI → Packer/Image Builder (patch, harden, install agents) → Test → Golden AMI → Launch Template → ASG
+```
+
+**🔹 Key facts**
+- AMIs are **regional**; copy to other regions with `copy-image`
+- Can be shared with other accounts or made public
+- **Pre-baking** speeds up launches vs installing everything in `user_data`
+- Encrypted AMIs require **KMS key access** to be shared cross-account
+- Use **EC2 Image Builder** or **Packer** for automated, repeatable builds
+
+```bash
+aws ec2 create-image --instance-id i-0123 --name "web-golden-2026-10-11" --no-reboot
+aws ec2 copy-image --source-image-id ami-0abc --source-region us-east-1 --region ap-south-1 --name web-golden
+```
+
+<br>
+
+---
+
+### Q15. What is the difference between Launch Templates and Launch Configurations?
+
+#### 📌 Short Explanation
+Auto Scaling groups need a blueprint to launch instances; this checks you know the current best practice.
+
+#### ✅ Answer
+**Launch Templates** are the modern, versioned, feature-rich replacement for the legacy **Launch Configurations**, which are deprecated and no longer receive new features.
+
+#### 📖 Detailed Explanation
+
+| Feature | Launch Template | Launch Configuration |
+|---------|-----------------|----------------------|
+| **Versioning** | ✅ Yes | ❌ Immutable, no versions |
+| **Edit** | Create new versions | Must create a new one |
+| **Mixed On-Demand + Spot** | ✅ Yes | ❌ No |
+| **Multiple instance types** | ✅ Yes | ❌ No |
+| **Newer features** (T3 unlimited, IMDSv2 options, placement, etc.) | ✅ Yes | ❌ Limited |
+| **Use outside ASG** (`run-instances`, Spot Fleet) | ✅ Yes | ❌ ASG only |
+| **Status** | Recommended | Deprecated |
+
+**🔹 What a template defines**
+AMI, instance type, key pair, Security Groups, IAM instance profile, `user_data`, EBS mappings, tags, metadata options.
+
+**🔹 Rolling out a new AMI**
+1. Create a **new template version** with the new AMI
+2. Update the ASG to use the new version (`$Latest` or a fixed number)
+3. Run **Instance Refresh** for a rolling replacement
+
+```bash
+aws autoscaling start-instance-refresh --auto-scaling-group-name web-asg \
+  --preferences '{"MinHealthyPercentage":90,"InstanceWarmup":120}'
+```
+
+<br>
+
+---
+
+### Q16. Explain Auto Scaling policies. Scenario: your ASG isn't scaling out under load — what do you check?
+
+#### 📌 Short Explanation
+Tests both the theory of scaling policies and practical troubleshooting.
+
+#### ✅ Answer
+ASG supports **target tracking, step, simple, scheduled, and predictive** scaling. If it isn't scaling, check the alarm/metric, max capacity, cooldown/warmup, launch failures, and quotas.
+
+#### 📖 Detailed Explanation
+
+**🔹 Scaling policy types**
+
+| Policy | How it works | Example |
+|--------|-------------|---------|
+| **Target tracking** | Maintains a metric at a target | Keep average CPU at 50% |
+| **Step scaling** | Different adjustments for alarm severity | +2 if CPU > 70%, +4 if > 90% |
+| **Simple scaling** | One adjustment per alarm, with cooldown | Legacy |
+| **Scheduled** | Scale at specific times | Scale up before 9 AM sale |
+| **Predictive** | ML forecasts load from history | Recurring daily patterns |
+
+**🔹 Troubleshooting checklist**
+- ✅ Is **MaxSize** already reached?
+- ✅ Is the CloudWatch **alarm** in `ALARM` state? Is the metric reporting? (memory needs the CloudWatch agent)
+- ✅ Is it in **cooldown / instance warmup**?
+- ✅ Check **Activity history** for errors: `InsufficientInstanceCapacity`, bad AMI, missing key pair, wrong Security Group, **service quota exceeded**
+- ✅ Does the launch template reference a **deleted AMI/SG/subnet**?
+- ✅ Is the subnet **out of free IPs**?
+
+```bash
+aws autoscaling describe-scaling-activities --auto-scaling-group-name web-asg --max-items 5
+```
+
+**🔹 Health checks:** use **ELB health checks** (not only EC2) so unhealthy app instances get replaced.
+
+<br>
+
+---
+
+### Q17. Explain Elastic Load Balancers. What is the difference between ALB, NLB, and Gateway Load Balancer?
+
+#### 📌 Short Explanation
+A must-know for any AWS interview — choosing the right load balancer.
+
+#### ✅ Answer
+- **ALB** — Layer 7 (HTTP/HTTPS), content-based routing
+- **NLB** — Layer 4 (TCP/UDP/TLS), ultra-low latency and static IPs
+- **GWLB** — Layer 3 gateway for inserting third-party virtual appliances (firewalls)
+- **CLB** — legacy, avoid for new workloads
+
+#### 📖 Detailed Explanation
+
+| Feature | ALB | NLB |
+|---------|-----|-----|
+| **OSI layer** | 7 | 4 |
+| **Protocols** | HTTP, HTTPS, gRPC, WebSocket | TCP, UDP, TLS |
+| **Routing** | Host, path, header, query string | Port/protocol based |
+| **Static / Elastic IP** | ❌ (use Global Accelerator) | ✅ Yes, per AZ |
+| **Performance** | High | Millions of requests/sec, very low latency |
+| **Preserves client IP** | Via `X-Forwarded-For` header | Yes (for instance targets) |
+| **Security Groups** | ✅ Yes | ✅ Yes (supported on newer NLBs) |
+| **WAF integration** | ✅ Yes | ❌ No |
+| **Targets** | Instances, IPs, Lambda | Instances, IPs, ALB |
+
+**🔹 When to choose**
+- **ALB:** web apps, microservices, path-based routing (`/api` → service A, `/web` → service B), Kubernetes Ingress
+- **NLB:** non-HTTP protocols, gaming, IoT, need static IPs, extreme throughput, PrivateLink services
+- **GWLB:** inline security inspection appliances
+
+**🔹 Features common to ELB:** cross-zone load balancing, SSL termination (ACM), health checks, connection draining (deregistration delay), access logs.
+
+<br>
+
+---
+
+### Q18. What are Target Groups? Scenario: ALB returns 502, 503, or 504 errors — how do you troubleshoot?
+
+#### 📌 Short Explanation
+Tests your understanding of ALB internals and the meaning of each error code.
+
+#### ✅ Answer
+A **Target Group** is a set of targets (instances, IPs, Lambda) that a load balancer routes to, with its own **health check** configuration. Each 5xx code points to a different layer of the problem.
+
+#### 📖 Detailed Explanation
+
+**🔹 Target group config**
+- Target type: `instance`, `ip`, `lambda`, `alb`
+- Protocol/port, **health check** (path, interval, thresholds, matcher codes)
+- Deregistration delay (connection draining), stickiness, load-balancing algorithm
+
+**🔹 Error codes**
+
+| Code | Meaning | Common causes and fixes |
+|------|---------|-------------------------|
+| **502 Bad Gateway** | Target sent an invalid response or closed the connection | App crashed, protocol mismatch (HTTP vs HTTPS), target **keep-alive timeout < ALB idle timeout** (set app keep-alive higher than 60s) |
+| **503 Service Unavailable** | **No healthy targets** (or none registered) | Health check path wrong, SG blocks ALB → target, app down |
+| **504 Gateway Timeout** | Target didn't respond within the idle timeout | Slow app/DB, SG/NACL blocking, increase idle timeout or fix slow query |
+
+**🔹 Targets showing `unhealthy`?**
+1. Is the **health check path/port** correct and returning the expected code (e.g., `200`)?
+2. Does the **target's SG allow inbound from the ALB's SG**?
+3. Is the app listening on the right port and bound to `0.0.0.0`, not `127.0.0.1`?
+4. Check ALB **access logs** and target logs
+
+```bash
+aws elbv2 describe-target-health --target-group-arn <arn>
+```
+
+<br>
+
+---
+
+### Q19. Design a highly available, scalable 3-tier web application on AWS.
+
+#### 📌 Short Explanation
+The most common architecture scenario. It combines networking, compute, database, and security knowledge.
+
+#### ✅ Answer
+Use a multi-AZ VPC with **ALB (public) → EC2/ECS/EKS in an Auto Scaling Group (private) → RDS Multi-AZ (isolated)**, with Route 53, CloudFront, WAF, and CloudWatch around it.
+
+#### 📖 Detailed Explanation
+
+```text
+Users → Route 53 → CloudFront (+ WAF) → ALB (public subnets, 2+ AZs)
+                                          ↓
+                         Auto Scaling Group (private app subnets)
+                                          ↓
+                    RDS Multi-AZ + Read Replicas (private DB subnets)
+                    ElastiCache (optional)    S3 (static assets / backups)
+```
+
+| Tier | AWS Services | HA technique |
+|------|--------------|--------------|
+| **Edge** | Route 53, CloudFront, WAF, ACM | Global edge caching, DDoS protection (Shield) |
+| **Web / App** | ALB, EC2 ASG (or ECS/EKS) | Multi-AZ, health checks, auto scaling |
+| **Data** | RDS Multi-AZ, ElastiCache, S3 | Automatic failover, replicas, cache |
+| **Network** | VPC, NAT per AZ, Endpoints | No single point of failure |
+| **Security** | SGs chaining, IAM roles, KMS, Secrets Manager | Least privilege, encryption |
+| **Ops** | CloudWatch, CloudTrail, Config, SSM | Monitoring, audit, patching |
+
+**🔹 Design principles to mention**
+- No SSH to servers; use **Session Manager**
+- Instances use **IAM roles**, not access keys
+- **Stateless** app tier (sessions in ElastiCache/DynamoDB)
+- **Infrastructure as Code** (Terraform) and golden AMIs
+- **Backups + DR:** cross-region snapshots, Route 53 failover
+- Cost control: right-sizing, Savings Plans, S3 lifecycle policies
+
+<br>
+
+---
+
+### Q20. Explain IAM users, groups, roles, and policies. What is the difference between a User and a Role?
+
+#### 📌 Short Explanation
+IAM is the most important AWS security service. This question tests identity fundamentals.
+
+#### ✅ Answer
+- **User** — long-term identity for a person/app with permanent credentials
+- **Group** — collection of users sharing permissions
+- **Role** — an identity with **temporary credentials**, assumed by users, services, or other accounts
+- **Policy** — JSON document defining permissions
+
+#### 📖 Detailed Explanation
+
+| Aspect | IAM User | IAM Role |
+|--------|----------|----------|
+| **Credentials** | Long-term (password, access keys) | Temporary (STS tokens) |
+| **Assumed by** | One specific person/app | Anyone/anything trusted (EC2, Lambda, other accounts, federated users) |
+| **Best practice** | Avoid for workloads; prefer SSO | ✅ Preferred for workloads |
+
+**🔹 Policy types**
+
+| Type | Purpose |
+|------|---------|
+| **Identity-based** | Attached to users/groups/roles |
+| **Resource-based** | Attached to resources (S3 bucket policy, KMS key policy) |
+| **Trust policy** | Defines *who can assume* a role |
+| **Permission boundary** | Maximum permissions an identity can have |
+| **SCP (Organizations)** | Guardrails for entire accounts |
+| **Session policy** | Limits permissions of an assumed session |
+
+**🔹 Example policy (least privilege)**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["s3:GetObject", "s3:PutObject"],
+    "Resource": "arn:aws:s3:::my-app-bucket/uploads/*"
+  }]
+}
+```
+
+**🔹 Evaluation logic**
+1. Default is **implicit deny**
+2. An **explicit Deny always wins**
+3. Otherwise, an explicit Allow is needed (and must not be blocked by SCP / boundary)
+
+**🔹 Best practices:** enable MFA, no root usage, least privilege, rotate keys, use IAM Identity Center (SSO).
+
+<br>
+
+---
+
+### Q21. Scenario: An application on EC2 needs to access S3 securely, and another account's resources too. How do you do it without hardcoding keys?
+
+#### 📌 Short Explanation
+Tests IAM roles, instance profiles, and cross-account access with STS AssumeRole.
+
+#### ✅ Answer
+Attach an **IAM role via an instance profile** to EC2 for S3 access. For cross-account access, create a role in the target account that **trusts** the source account, and have the app call **`sts:AssumeRole`**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Same account: EC2 → S3**
+1. Create an IAM role with trust policy for `ec2.amazonaws.com`
+2. Attach a least-privilege S3 policy
+3. Attach the role to the instance (instance profile)
+4. The SDK/CLI automatically retrieves temporary credentials from the metadata service (use **IMDSv2**)
+
+**🔹 Cross-account**
+
+*Account B (target) — role trust policy:*
+```json
+{
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::111111111111:role/app-role" },
+  "Action": "sts:AssumeRole"
+}
+```
+*Account A (source) — role must have `sts:AssumeRole` permission on that role ARN.*
+
+```bash
+aws sts assume-role --role-arn arn:aws:iam::222222222222:role/cross-acct-role --role-session-name demo
+```
+
+**🔹 Troubleshooting `AccessDenied`**
+- Check identity policy, resource policy, **SCP**, permission boundary, and **explicit deny**
+- For KMS-encrypted objects, the role also needs **KMS permissions**
+- Use **IAM Policy Simulator** and CloudTrail to find the exact denied action
+
+> **Key takeaway:** **Never embed access keys** in code or AMIs; use roles with temporary credentials.
+
+<br>
+
+---
+
+### Q22. Explain Amazon S3 storage classes, versioning, and lifecycle policies.
+
+#### 📌 Short Explanation
+S3 is the most used AWS service. Interviewers test durability, cost optimization, and data protection.
+
+#### ✅ Answer
+S3 offers multiple **storage classes** for different access patterns. **Versioning** protects against accidental deletion/overwrite, and **lifecycle rules** automatically transition or expire objects to save cost.
+
+#### 📖 Detailed Explanation
+
+**🔹 Storage classes**
+
+| Class | Use case | Retrieval |
+|-------|----------|-----------|
+| **Standard** | Frequently accessed data | Instant |
+| **Intelligent-Tiering** | Unknown or changing access patterns | Instant (auto-tiers) |
+| **Standard-IA** | Infrequent access, multi-AZ | Instant, retrieval fee |
+| **One Zone-IA** | Infrequent, re-creatable data, single AZ | Instant |
+| **Glacier Instant Retrieval** | Archive needing millisecond access | Instant |
+| **Glacier Flexible Retrieval** | Archive (minutes to hours) | Minutes–hours |
+| **Glacier Deep Archive** | Long-term compliance archive | ~12–48 hours |
+
+All classes provide **11 nines (99.999999999%) durability** (data is spread across AZs, except One Zone).
+
+**🔹 Versioning**
+- Keeps every version of an object; a delete adds a **delete marker**
+- Enables recovery, and is needed for **replication** and **MFA Delete**
+
+**🔹 Lifecycle example**
+```json
+{
+  "Rules": [{
+    "ID": "logs-archive",
+    "Status": "Enabled",
+    "Filter": { "Prefix": "logs/" },
+    "Transitions": [
+      { "Days": 30, "StorageClass": "STANDARD_IA" },
+      { "Days": 90, "StorageClass": "GLACIER" }
+    ],
+    "Expiration": { "Days": 365 },
+    "NoncurrentVersionExpiration": { "NoncurrentDays": 30 }
+  }]
+}
+```
+
+**🔹 Other features:** Cross-Region Replication, Object Lock (WORM), Transfer Acceleration, multipart upload (recommended for files > 100 MB), pre-signed URLs, S3 is **strongly consistent** for reads after writes.
+
+<br>
+
+---
+
+### Q23. Scenario: How do you secure an S3 bucket, and how do you troubleshoot `AccessDenied` errors?
+
+#### 📌 Short Explanation
+Misconfigured S3 buckets are a leading cause of data leaks. Tests both security and troubleshooting skills.
+
+#### ✅ Answer
+Enable **Block Public Access**, enforce **encryption and TLS**, use **least-privilege IAM/bucket policies**, turn on **versioning and logging**. For `AccessDenied`, check every policy layer.
+
+#### 📖 Detailed Explanation
+
+**🔹 Security checklist**
+- ✅ **S3 Block Public Access** (account and bucket level)
+- ✅ **Default encryption** (SSE-S3 or SSE-KMS)
+- ✅ Bucket policy denying non-TLS requests:
+```json
+{
+  "Effect": "Deny",
+  "Principal": "*",
+  "Action": "s3:*",
+  "Resource": ["arn:aws:s3:::my-bucket", "arn:aws:s3:::my-bucket/*"],
+  "Condition": { "Bool": { "aws:SecureTransport": "false" } }
+}
+```
+- ✅ Access via **IAM roles / VPC endpoints**; avoid long-lived keys
+- ✅ **Versioning + MFA Delete + Object Lock** for critical data
+- ✅ **Server access logs / CloudTrail data events**
+- ✅ Monitor with **AWS Config** (`s3-bucket-public-read-prohibited`) and **Macie** for sensitive data
+
+**🔹 `AccessDenied` troubleshooting**
+
+| Check | Details |
+|-------|---------|
+| **IAM policy** | Does the role allow the action on the correct ARN (`bucket` vs `bucket/*`)? |
+| **Bucket policy** | Any explicit Deny (VPC endpoint, IP, TLS conditions)? |
+| **Block Public Access / ACLs** | Blocking public or cross-account access? |
+| **KMS** | SSE-KMS object needs `kms:Decrypt` on the key |
+| **SCP / boundary** | Org-level restriction? |
+| **Cross-account** | Needs permission on **both** sides |
+| **Object ownership** | Uploaded by another account without bucket-owner-enforced? |
+
+<br>
+
+---
+
+### Q24. What is the difference between S3, EBS, and EFS?
+
+#### 📌 Short Explanation
+Tests your ability to pick the right storage type.
+
+#### ✅ Answer
+- **S3** — object storage (HTTP API, unlimited)
+- **EBS** — block storage for a single EC2 instance (like a disk)
+- **EFS** — managed shared NFS file system for many instances
+
+#### 📖 Detailed Explanation
+
+| Feature | S3 | EBS | EFS |
+|---------|----|-----|-----|
+| **Type** | Object | Block | File (NFS) |
+| **Access** | HTTP/S API | Attached to one instance (Multi-Attach for io1/io2 only) | Mounted by thousands of instances/containers |
+| **Scope** | Regional | **Single AZ** | Regional (multi-AZ) |
+| **Capacity** | Unlimited | Provisioned (up to 64 TiB) | Elastic, grows automatically |
+| **Use cases** | Backups, static sites, data lakes, logs | Boot volumes, databases | Shared content, CMS, home dirs |
+| **Pricing** | Per GB stored + requests | Per GB provisioned | Per GB used |
+
+**🔹 EBS volume types**
+- `gp3` — default general purpose (baseline 3,000 IOPS, tunable)
+- `io2` — high-performance databases
+- `st1` / `sc1` — throughput/cold HDD
+
+**🔹 Scenario:** "Need a shared folder for 10 web servers" → **EFS**. "Need a fast disk for MySQL on EC2" → **EBS gp3/io2**. "Store user uploads and serve them" → **S3 + CloudFront**.
+
+<br>
+
+---
+
+### Q25. What is the difference between RDS Multi-AZ and Read Replicas?
+
+#### 📌 Short Explanation
+One of the most common RDS questions. Candidates often confuse high availability with read scaling.
+
+#### ✅ Answer
+- **Multi-AZ** is for **high availability and failover** (synchronous standby in another AZ).
+- **Read Replicas** are for **read scalability** (asynchronous copies serving read traffic).
+
+#### 📖 Detailed Explanation
+
+| Aspect | Multi-AZ | Read Replica |
+|--------|----------|--------------|
+| **Purpose** | HA / disaster recovery | Scale reads, reporting |
+| **Replication** | **Synchronous** | **Asynchronous** |
+| **Serves traffic?** | ❌ Standby not readable (classic Multi-AZ instance) | ✅ Yes, read-only endpoint |
+| **Failover** | Automatic (typically 60–120 seconds) | Manual **promotion** |
+| **Location** | Same region, different AZ | Same region, **cross-AZ or cross-region** |
+| **Endpoint** | Same DNS endpoint (CNAME flips) | Separate endpoint per replica |
+| **Backups** | Taken from standby (less impact) | Independent |
+
+> 💡 Newer **Multi-AZ DB cluster** deployments have two readable standbys, combining HA and read scaling.
+
+**🔹 Failover triggers:** instance/AZ failure, OS patching, instance type change, manual reboot with failover.
+
+> **Key takeaway:** Multi-AZ ≠ read scaling. Use both for production: Multi-AZ for resilience, replicas for performance.
+
+<br>
+
+---
+
+### Q26. Scenario: Your application is read-heavy and the RDS database is slow. How do Read Replicas help, and what do you need to change?
+
+#### 📌 Short Explanation
+Tests practical database scaling and awareness of replication lag.
+
+#### ✅ Answer
+Create one or more **Read Replicas**, route **read queries** to them (via a reader endpoint or app-level routing), and keep writes on the primary. Monitor **replica lag**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Steps**
+1. Create a replica
+```bash
+aws rds create-db-instance-read-replica --db-instance-identifier mydb-replica1 --source-db-instance-identifier mydb
+```
+2. Update the app: **write → primary endpoint**, **read → replica endpoint(s)** (or use a read/write splitting library or proxy)
+3. Monitor CloudWatch `ReplicaLag`
+4. Add caching (**ElastiCache**) and indexes before scaling out further
+
+**🔹 Considerations**
+- Replication is **asynchronous** → possible **stale reads**; critical reads right after a write should use the primary
+- Replicas can be **promoted** to standalone databases (used in DR and migrations)
+- **Cross-region replicas** help DR and low-latency global reads
+- Replicas can have different instance sizes and their own Multi-AZ setting
+- **Aurora** supports up to 15 replicas with a single **reader endpoint** and typically much lower lag
+
+**🔹 Other ways to improve performance:** right-size the instance, use Provisioned IOPS, enable Performance Insights, optimize slow queries, and use RDS Proxy for connection management.
+
+<br>
+
+---
+
+### Q27. What is RDS Proxy and when should you use it?
+
+#### 📌 Short Explanation
+Tests knowledge of connection management, especially for serverless apps connecting to relational databases.
+
+#### ✅ Answer
+**RDS Proxy** is a fully managed database proxy that **pools and shares connections**, reduces database load, and speeds up failover. It is particularly useful with **Lambda** and apps that open many short-lived connections.
+
+#### 📖 Detailed Explanation
+
+**🔹 Problem it solves**
+Lambda can scale to hundreds of concurrent executions, each opening its own DB connection and exhausting `max_connections`, causing `Too many connections` errors and high CPU.
+
+**🔹 Benefits**
+- **Connection pooling and multiplexing**
+- **Faster failover** (proxy keeps connections and reduces failover impact)
+- **IAM authentication** and credentials stored in **Secrets Manager**
+- Enforces TLS
+
+**🔹 Architecture**
+```text
+Lambda / App → RDS Proxy (in VPC) → RDS / Aurora (Multi-AZ)
+```
+
+**🔹 Notes**
+- Runs inside your **VPC** (not publicly accessible); the app connects to the **proxy endpoint**
+- Supports MySQL, PostgreSQL, MariaDB, and SQL Server engines
+- Extra cost per vCPU of the DB instance
+- **Pinning:** certain session-level features can pin a connection to a client, reducing multiplexing benefits
+
+| Without RDS Proxy | With RDS Proxy |
+|-------------------|----------------|
+| Each Lambda opens a connection | Shared pool of connections |
+| Failover drops connections | Faster, smoother failover |
+| DB credentials in env vars | Secrets Manager + IAM auth |
+
+<br>
+
+---
+
+### Q28. Explain AWS Lambda. Scenario: your Lambda function is timing out or being throttled — what do you do?
+
+#### 📌 Short Explanation
+Tests your understanding of serverless limits, concurrency, and cold starts.
+
+#### ✅ Answer
+**Lambda** runs code without managing servers, billed per request and execution duration. Timeouts and throttling are solved by tuning **timeout/memory**, fixing slow dependencies, and managing **concurrency**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Key limits (verify the current values in the AWS docs)**
+- Max timeout: **15 minutes**
+- Memory: 128 MB – 10 GB (CPU scales with memory)
+- Default concurrency: **1,000 per region** (can be raised)
+- Synchronous payload: **6 MB**
+- `/tmp` storage: up to 10 GB
+
+**🔹 Timeouts — causes and fixes**
+- Slow downstream calls (DB, API) → add timeouts, caching, RDS Proxy
+- Too little memory → **increase memory** (more CPU)
+- Lambda in a VPC without NAT/endpoints can't reach the internet → add NAT or VPC endpoints
+- Long processing → split work, use **Step Functions** or SQS
+
+**🔹 Throttling (`429 TooManyRequestsException`)**
+
+| Concept | Meaning |
+|---------|---------|
+| **Reserved concurrency** | Guarantees (and caps) concurrency for one function |
+| **Provisioned concurrency** | Pre-warmed environments, eliminates cold starts |
+| **Account limit** | Shared by all functions in the region → request an increase |
+
+**🔹 Cold starts**
+Mitigate with provisioned concurrency, smaller packages, lighter runtimes, avoiding heavy init code, and SnapStart (supported runtimes).
+
+**🔹 Error handling for async invocations:** retries (2 by default), **DLQ / on-failure destinations**, and idempotent code.
+
+```bash
+aws lambda get-function-concurrency --function-name my-func
+aws logs tail /aws/lambda/my-func --follow
+```
+
+<br>
+
+---
+
+### Q29. What is API Gateway? Explain REST API vs HTTP API and how you secure and throttle APIs.
+
+#### 📌 Short Explanation
+Tests knowledge of API management, which is often paired with Lambda.
+
+#### ✅ Answer
+**API Gateway** is a managed service to create, publish, secure, and monitor APIs. It offers **REST APIs**, cheaper/faster **HTTP APIs**, and **WebSocket APIs**.
+
+#### 📖 Detailed Explanation
+
+| Feature | REST API | HTTP API |
+|---------|----------|----------|
+| **Cost** | Higher | ~70% cheaper |
+| **Latency** | Higher | Lower |
+| **API keys / usage plans** | ✅ Yes | ❌ No |
+| **Request validation, caching, WAF** | ✅ Yes | ❌ Limited |
+| **JWT authorizers (OIDC/OAuth2)** | Via Lambda/Cognito | ✅ Native |
+| **Best for** | Full-featured, enterprise APIs | Simple, low-cost proxy to Lambda/HTTP |
+
+**🔹 Authentication options**
+- **IAM (SigV4)** — service-to-service
+- **Cognito User Pools / JWT** — end users
+- **Lambda authorizer** — custom logic
+- **mTLS, API keys + usage plans** (REST) for partner throttling
+
+**🔹 Throttling:** account-level default plus per-stage/per-method limits and **usage plans**; clients get `429` when exceeded.
+
+**🔹 Integration types:** Lambda proxy, HTTP proxy, AWS service, VPC Link (private ALB/NLB), mock.
+
+**🔹 Common issues**
+- `504` — integration exceeded the timeout (29 seconds by default)
+- `403` — missing authorizer permission / WAF block / resource policy
+- CORS errors — enable CORS on the API and return the correct headers
+- Use **stages**, **canary deployments**, and CloudWatch **access logs** for operations
+
+<br>
+
+---
+
+### Q30. How does CloudFront work? Scenario: users see stale content after a deployment — how do you fix it?
+
+#### 📌 Short Explanation
+Tests CDN, caching strategy, and secure origin access.
+
+#### ✅ Answer
+**CloudFront** is a global CDN that caches content at edge locations close to users. For stale content, **invalidate** the cache or, better, use **versioned file names** and appropriate cache headers/TTLs.
+
+#### 📖 Detailed Explanation
+
+**🔹 How it works**
+```text
+User → nearest Edge Location → (cache hit? return) → (miss) → Origin (S3 / ALB / API) → cache & return
+```
+
+**🔹 Key concepts**
+- **Distribution**, **origins** (S3, ALB, custom), **behaviors** (path-based rules), **cache policy**, **TTL**
+- **OAC (Origin Access Control)** keeps the S3 bucket private so only CloudFront can read it (replaces legacy OAI)
+- **HTTPS** with ACM certificates, **WAF**, geo restriction, signed URLs/cookies
+- **Lambda@Edge / CloudFront Functions** for edge logic
+
+**🔹 Fixing stale content**
+```bash
+aws cloudfront create-invalidation --distribution-id E123ABC --paths "/index.html" "/static/*"
+```
+- Prefer **hashed filenames** (`app.8f3a1.js`) with long TTLs, and a short TTL (or `no-cache`) for `index.html`
+- First 1,000 invalidation paths per month are free, then charged
+
+**🔹 Other common issues**
+
+| Symptom | Cause |
+|---------|-------|
+| 403 from S3 origin | OAC/bucket policy missing |
+| 502/504 | Origin unreachable, TLS mismatch, timeout |
+| Low cache hit ratio | Forwarding unneeded headers/cookies/query strings |
+
+<br>
+
+---
+
+### Q31. What is AWS Certificate Manager (ACM)? Scenario: your certificate isn't available for CloudFront or fails to validate — what's wrong?
+
+#### 📌 Short Explanation
+Tests TLS certificate management and region-specific gotchas.
+
+#### ✅ Answer
+**ACM** provisions, manages, and automatically renews **public SSL/TLS certificates** (free) for integrated AWS services such as ALB, CloudFront, and API Gateway.
+
+#### 📖 Detailed Explanation
+
+**🔹 Key facts**
+- Public certificates are **free**, and renew automatically (when in use and validation records remain)
+- Certificates are **regional**; for **CloudFront**, the certificate **must be in `us-east-1`**
+- Cannot be installed directly on EC2 (you can't export the private key of public certs); use ALB/CloudFront or **ACM Private CA / imported certs**
+- **Imported certificates are not auto-renewed**
+
+**🔹 Validation methods**
+
+| Method | Notes |
+|--------|-------|
+| **DNS validation** (recommended) | Add a CNAME in Route 53; supports auto-renewal |
+| **Email validation** | Sent to domain contacts; manual |
+
+**🔹 Troubleshooting**
+- Stuck in `Pending validation` → CNAME not added, wrong hosted zone, or DNS propagation delay
+- Certificate not shown for CloudFront → created in the **wrong region**
+- Certificate doesn't cover the hostname → use **SAN** or **wildcard** (`*.example.com`)
+- Renewal failures → DNS record deleted, or certificate not in use
+
+```bash
+aws acm request-certificate --domain-name "*.example.com" --validation-method DNS --region us-east-1
+```
+
+<br>
+
+---
+
+### Q32. Explain Amazon CloudWatch. How do you monitor memory usage on EC2 and set alarms?
+
+#### 📌 Short Explanation
+CloudWatch is the core AWS monitoring service; this tests metrics, logs, and alarms.
+
+#### ✅ Answer
+**CloudWatch** collects **metrics, logs, and events**, supports **alarms** and dashboards. EC2 does **not** publish **memory or disk usage** by default, so install the **CloudWatch Agent**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Components**
+
+| Component | Purpose |
+|-----------|---------|
+| **Metrics** | Time-series data (CPU, network, custom) |
+| **Logs** | Log groups/streams, retention, **Logs Insights** queries |
+| **Alarms** | `OK`, `ALARM`, `INSUFFICIENT_DATA` states with actions (SNS, ASG, EC2) |
+| **Dashboards** | Visualization |
+| **Metric filters** | Turn log patterns into metrics |
+| **Container Insights / Application Signals** | ECS/EKS and APM insights |
+
+**🔹 Default EC2 metrics:** CPU, network, disk I/O, status checks — at **5-minute** granularity (1-minute with detailed monitoring).
+
+**🔹 Memory and disk setup**
+1. Attach an IAM role with `CloudWatchAgentServerPolicy`
+2. Install and configure the **CloudWatch agent** (`mem_used_percent`, `disk_used_percent`)
+3. Create an alarm on the custom metric
+
+```bash
+aws cloudwatch put-metric-alarm --alarm-name high-mem \
+  --metric-name mem_used_percent --namespace CWAgent \
+  --statistic Average --period 300 --threshold 80 \
+  --comparison-operator GreaterThanThreshold --evaluation-periods 2 \
+  --alarm-actions arn:aws:sns:us-east-1:123456789012:ops-alerts
+```
+
+**🔹 Logs Insights example**
+```text
+fields @timestamp, @message | filter @message like /ERROR/ | sort @timestamp desc | limit 20
+```
+
+> 💡 Set **log retention** — the default is "never expire", which silently increases cost.
+
+<br>
+
+---
+
+### Q33. What is the difference between CloudWatch, CloudTrail, and AWS Config?
+
+#### 📌 Short Explanation
+A very common comparison. Each service answers a different question.
+
+#### ✅ Answer
+- **CloudWatch** — *"How is it performing?"* (metrics, logs, alarms)
+- **CloudTrail** — *"Who did what, when?"* (API audit trail)
+- **AWS Config** — *"What does it look like, and is it compliant?"* (configuration history and rules)
+
+#### 📖 Detailed Explanation
+
+| Service | Purpose | Example question |
+|---------|---------|------------------|
+| **CloudWatch** | Monitoring and observability | "Why is CPU at 95%?" |
+| **CloudTrail** | Governance and audit of API calls | "Who deleted the security group?" |
+| **AWS Config** | Resource configuration tracking and compliance | "Was this S3 bucket ever public? When did it change?" |
+
+**🔹 Example incident:** a security group was opened to `0.0.0.0/0`.
+- **CloudTrail** → who made the `AuthorizeSecurityGroupIngress` call and from which IP
+- **Config** → previous vs current configuration and compliance status
+- **CloudWatch/EventBridge** → real-time alert when it happens
+
+> **Key takeaway:** Performance → CloudWatch · Audit → CloudTrail · Compliance/config drift → Config.
+
+<br>
+
+---
+
+### Q34. Explain AWS CloudTrail. Scenario: someone deleted a resource — how do you find out who did it?
+
+#### 📌 Short Explanation
+Tests audit and incident investigation skills.
+
+#### ✅ Answer
+Search **CloudTrail Event history** (or Athena over trail logs in S3) for the delete event, and identify the **user/role, source IP, time, and request parameters**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Key facts**
+- **Management events** are logged by default; **Event history** keeps **90 days**
+- Create a **trail** to deliver logs to **S3** for long-term retention (and optionally CloudWatch Logs)
+- **Data events** (S3 object-level, Lambda invoke) must be enabled explicitly (extra cost)
+- Use an **organization trail** and **log file validation** for integrity
+- Protect the log bucket (separate account, restricted access, MFA delete/Object Lock)
+
+**🔹 Investigation**
+```bash
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=DeleteSecurityGroup \
+  --max-results 5
+```
+Review `userIdentity`, `sourceIPAddress`, `eventTime`, and `requestParameters`. For long-term analysis, query logs with **Athena**.
+
+**🔹 Prevention and alerting**
+- **EventBridge rule / CloudWatch metric filter** on critical APIs (root login, `DeleteTrail`, IAM policy changes)
+- Tag resources, use **SCPs** to block dangerous actions, require MFA for sensitive operations
+
+<br>
+
+---
+
+### Q35. What is AWS Config? Scenario: how do you detect and automatically remediate non-compliant resources?
+
+#### 📌 Short Explanation
+Tests governance and compliance automation.
+
+#### ✅ Answer
+**AWS Config** continuously records resource configurations and evaluates them against **Config Rules**. Non-compliant resources can be fixed automatically using **remediation actions** (SSM Automation documents).
+
+#### 📖 Detailed Explanation
+
+**🔹 Capabilities**
+- Configuration **timeline/history** and relationships
+- **Managed rules** (e.g., `s3-bucket-public-read-prohibited`, `encrypted-volumes`, `restricted-ssh`) and **custom rules** (Lambda)
+- **Conformance packs** (CIS, PCI) and **multi-account aggregators**
+
+**🔹 Scenario: S3 bucket made public**
+1. Enable Config and the rule `s3-bucket-public-read-prohibited`
+2. Resource becomes **NON_COMPLIANT**
+3. **Auto-remediation** runs the SSM document `AWS-DisableS3BucketPublicReadWrite`
+4. Notification via EventBridge → SNS
+
+```bash
+aws configservice put-config-rule --config-rule file://s3-public-rule.json
+aws configservice describe-compliance-by-config-rule
+```
+
+**🔹 Config vs CloudTrail:** Config shows **state over time**; CloudTrail shows the **API actions** that caused changes.
+
+<br>
+
+---
+
+### Q36. What is Amazon Inspector? How is it different from GuardDuty?
+
+#### 📌 Short Explanation
+Tests knowledge of the AWS security services landscape.
+
+#### ✅ Answer
+**Amazon Inspector** scans workloads for **software vulnerabilities (CVEs)** and unintended network exposure. **GuardDuty** detects **active threats and suspicious behavior**.
+
+#### 📖 Detailed Explanation
+
+| Aspect | Amazon Inspector | Amazon GuardDuty |
+|--------|------------------|------------------|
+| **Focus** | Vulnerability management | Threat detection |
+| **Scans** | EC2 (via SSM Agent), **ECR images**, Lambda functions | CloudTrail, VPC Flow Logs, DNS logs, EKS audit logs |
+| **Finds** | CVEs, vulnerable packages, network reachability | Crypto-mining, credential exfiltration, unusual API calls |
+| **Nature** | Proactive (before attack) | Reactive (detect ongoing attack) |
+
+**🔹 Inspector highlights**
+- **Continuous**, automated scanning (no manual scan scheduling)
+- Findings have **severity and a risk score**, and integrate with **Security Hub** and **EventBridge**
+- Common use: block CI/CD deployments or alert when ECR images contain **critical CVEs**
+
+**🔹 Typical remediation flow:** Inspector finding → EventBridge → ticket/SSM Patch Manager run → re-scan.
+
+<br>
+
+---
+
+### Q37. Explain AWS KMS. What is envelope encryption? Scenario: you get `AccessDenied` when decrypting an object.
+
+#### 📌 Short Explanation
+Tests encryption fundamentals and key access control.
+
+#### ✅ Answer
+**KMS** manages cryptographic keys and integrates with most AWS services. **Envelope encryption** uses a KMS key to protect a **data key**, which encrypts the actual data. Decrypt failures are usually **key policy/IAM** issues.
+
+#### 📖 Detailed Explanation
+
+**🔹 Key types**
+
+| Type | Control |
+|------|---------|
+| **AWS owned keys** | Fully managed by AWS, invisible |
+| **AWS managed keys** (`aws/s3`) | Managed by AWS, visible in your account, can't change policy |
+| **Customer managed keys (CMK)** | You control policy, rotation, and deletion |
+
+**🔹 Envelope encryption**
+```text
+KMS key → GenerateDataKey → plaintext data key (encrypt data) + encrypted data key (stored with data)
+Decrypt: KMS decrypts the data key → use it to decrypt data
+```
+KMS encrypts up to 4 KB directly; larger data uses envelope encryption.
+
+**🔹 Access control:** **Key policy is the primary authority** (IAM alone isn't enough unless the key policy allows IAM). Grants provide temporary access.
+
+**🔹 `AccessDenied` on decrypt — checklist**
+- Does the **key policy** allow the principal (or enable IAM policies)?
+- Does the IAM role have `kms:Decrypt` / `kms:GenerateDataKey`?
+- **Cross-account:** both the key policy and the caller's IAM policy must allow it
+- Is the **key disabled or scheduled for deletion** (7–30 day waiting period)?
+- Are **VPC endpoint** or encryption-context conditions blocking?
+
+**🔹 Rotation:** CMK automatic rotation can be enabled (old key material is retained to decrypt old data).
+
+<br>
+
+---
+
+### Q38. What is Amazon EventBridge? Give scenarios for scheduling and reacting to AWS events.
+
+#### 📌 Short Explanation
+Tests event-driven architecture knowledge.
+
+#### ✅ Answer
+**EventBridge** is a serverless event bus that routes events from AWS services, SaaS apps, and your own apps to targets (Lambda, SQS, SNS, Step Functions, etc.) using **rules**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Core concepts:** event bus (default, custom, partner), **event pattern** rules, schedule rules/EventBridge Scheduler, targets, archive and replay, cross-account/cross-region buses, DLQs and retries.
+
+**🔹 Scenario 1: react to an EC2 state change**
+```json
+{
+  "source": ["aws.ec2"],
+  "detail-type": ["EC2 Instance State-change Notification"],
+  "detail": { "state": ["stopped", "terminated"] }
+}
+```
+Target: Lambda or SNS to alert/log.
+
+**🔹 Scenario 2: schedule a nightly job**
+```text
+cron(0 2 * * ? *)  →  Lambda that stops dev instances
+```
+
+**🔹 Scenario 3: automatic security response**
+GuardDuty/Config finding → EventBridge → Lambda/SSM remediates (isolate instance, revoke key).
+
+**🔹 EventBridge vs SNS vs SQS**
+
+| Service | Model | Best for |
+|---------|-------|----------|
+| **EventBridge** | Event bus with filtering and routing | Event-driven integration, AWS events, SaaS events |
+| **SNS** | Pub/sub fan-out | Push notifications to many subscribers |
+| **SQS** | Message queue (pull) | Decoupling and buffering work |
+
+<br>
+
+---
+
+### Q39. What is the difference between AWS Secrets Manager and SSM Parameter Store?
+
+#### 📌 Short Explanation
+Both store configuration and secrets. Interviewers want to know when to use which.
+
+#### ✅ Answer
+**Secrets Manager** is designed for secrets with **built-in automatic rotation**. **Parameter Store** is a simpler, cheaper configuration store that can also hold encrypted values (`SecureString`).
+
+#### 📖 Detailed Explanation
+
+| Feature | Secrets Manager | SSM Parameter Store |
+|---------|-----------------|---------------------|
+| **Primary use** | Secrets (DB credentials, API keys) | Configuration and simple secrets |
+| **Automatic rotation** | ✅ Built-in (Lambda), native for RDS | ❌ Not native (DIY) |
+| **Cost** | Per secret per month + API calls | Standard tier free, Advanced tier charged |
+| **Max size** | 64 KB | 4 KB (Standard) / 8 KB (Advanced) |
+| **Encryption** | Always KMS | `SecureString` with KMS (optional) |
+| **Cross-region replication** | ✅ Yes | ❌ No |
+| **Versioning** | ✅ Staging labels (`AWSCURRENT`) | ✅ Versions |
+
+**🔹 Reading a secret**
+```bash
+aws secretsmanager get-secret-value --secret-id prod/db/creds --query SecretString --output text
+aws ssm get-parameter --name /prod/app/api-url --with-decryption
+```
+
+**🔹 Rotation flow (RDS):** Secrets Manager triggers a Lambda that creates a new password, updates the DB, tests it, and promotes the new version — apps that fetch the secret at runtime pick it up automatically.
+
+**🔹 Best practices**
+- Never hardcode secrets or store them in Git/AMIs/env files
+- Grant access via **IAM roles** (least privilege) and audit via CloudTrail
+- Rule of thumb: **rotating credentials → Secrets Manager; plain config → Parameter Store**
+
+<br>
+
+---
+
+### Q40. What is AWS Systems Manager Session Manager? Why is it better than SSH/bastion hosts, and how do you troubleshoot it?
+
+#### 📌 Short Explanation
+Tests modern, secure instance-access practices.
+
+#### ✅ Answer
+**Session Manager** provides secure shell access to instances through the **SSM agent** — with **no inbound ports, no SSH keys, and no bastion host**, using IAM for authorization and full audit logging.
+
+#### 📖 Detailed Explanation
+
+**🔹 SSH/Bastion vs Session Manager**
+
+| Aspect | SSH / Bastion | Session Manager |
+|--------|---------------|-----------------|
+| **Inbound port 22** | Required | ❌ Not needed |
+| **Key management** | PEM files to distribute/rotate | None (IAM-based) |
+| **Auditing** | Limited | Logged to CloudTrail, S3, CloudWatch Logs |
+| **Access control** | Network + keys | IAM policies, MFA, tags |
+| **Bastion cost** | Extra instance | None |
+
+**🔹 Requirements**
+1. **SSM Agent** installed (preinstalled on Amazon Linux, Ubuntu AMIs)
+2. Instance profile with `AmazonSSMManagedInstanceCore`
+3. Network path to `ssm`, `ssmmessages`, `ec2messages` endpoints (internet/NAT or **VPC endpoints**)
+
+```bash
+aws ssm start-session --target i-0123456789abcdef0
+aws ssm start-session --target i-0123 --document-name AWS-StartPortForwardingSession \
+  --parameters "portNumber=3306,localPortNumber=3307"
+```
+
+**🔹 Instance not showing in Fleet Manager? Check**
+- Missing/incorrect IAM role · agent stopped (`systemctl status amazon-ssm-agent`)
+- No outbound HTTPS/VPC endpoints · wrong region · very old agent
+- User lacks `ssm:StartSession` permission
+
+**🔹 Related capabilities:** Run Command, Patch Manager, State Manager, Parameter Store, Automation.
 
 <br>
 
@@ -33,7 +1580,7 @@
 <br>
 
 <a id="git"></a>
-# 🔀 TOPIC 1: GIT
+# 🔀 TOPIC 2: GIT
 
 > Fork vs clone, fetch vs pull, merge vs rebase, branching strategies, conflicts, tags, history cleanup and secret removal.
 
@@ -832,7 +2379,7 @@ Hardcoded secrets in Git are one of the most common security missteps. Even priv
 <br>
 
 <a id="linux"></a>
-# 🐧 TOPIC 2: LINUX
+# 🐧 TOPIC 3: LINUX
 
 > Daily commands, disk & CPU troubleshooting, SSH/EC2 access recovery, log management, shell scripting and automation.
 
@@ -1687,7 +3234,7 @@ sed '1d; $d' file.txt > trimmed.txt
 <br>
 
 <a id="networking"></a>
-# 🌐 TOPIC 3: NETWORKING
+# 🌐 TOPIC 4: NETWORKING
 
 > DNS, OSI model, proxies, HTTP errors, curl/DNS troubleshooting, special IPs and VPC subnets.
 
@@ -2118,7 +3665,7 @@ Adding the missing IGW route and assigning a public IP solved the issue.
 <br>
 
 <a id="cicd"></a>
-# ⚙️ TOPIC 4: CI/CD
+# ⚙️ TOPIC 5: CI/CD
 
 > Jenkins, Maven, Artifactory, pipeline troubleshooting, Python builds, static code analysis, Argo CD and notifications.
 
@@ -2856,9 +4403,9 @@ Optional content:
 <br>
 
 <a id="terraform"></a>
-# 🏗️ TOPIC 5: TERRAFORM
+# 🏗️ TOPIC 6: TERRAFORM
 
-> Looping constructs and reusable infrastructure modules.
+> Workflow, providers, modules, workspaces, remote backends, state locking, data sources, provisioners, lifecycle rules, variables, outputs, `count` vs `for_each`, the Terraform Registry, drift and CI/CD scenarios.
 
 <br>
 
@@ -2984,10 +4531,870 @@ module "my_ec2" {
 
 ---
 
+### Q3. Explain the Terraform workflow. What do `init`, `plan`, `apply`, and `destroy` do?
+
+#### 📌 Short Explanation
+The most fundamental Terraform question. It tests whether you understand what happens behind each command.
+
+#### ✅ Answer
+Terraform follows **Write → Init → Plan → Apply**. `init` prepares the working directory, `plan` previews changes, `apply` executes them, and `destroy` removes everything managed by the configuration.
+
+#### 📖 Detailed Explanation
+
+| Command | What it does |
+|---------|--------------|
+| `terraform init` | Downloads providers/modules, configures the backend, creates `.terraform/` and the lock file |
+| `terraform validate` | Checks syntax and internal consistency |
+| `terraform fmt` | Formats code to the canonical style |
+| `terraform plan` | Compares **configuration vs state vs real infrastructure** and shows the diff |
+| `terraform apply` | Applies the plan (asks for confirmation unless `-auto-approve`) |
+| `terraform destroy` | Destroys all resources tracked in the state |
+
+**🔹 Symbols in plan output**
+- `+` create · `-` destroy · `~` update in place · `-/+` destroy and recreate
+
+**🔹 Best practice: save the plan and apply exactly that**
+```bash
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+**🔹 Terraform vs CloudFormation vs Ansible**
+
+| Aspect | Terraform | CloudFormation | Ansible |
+|--------|-----------|----------------|---------|
+| **Purpose** | Provisioning infrastructure | Provisioning (AWS only) | Configuration management (can also provision) |
+| **Cloud support** | Multi-cloud via providers | AWS only | Multi-platform |
+| **Language** | HCL (declarative) | JSON/YAML | YAML (procedural-ish) |
+| **State** | State file (you manage backend) | Managed by AWS | Stateless |
+
+<br>
+
+---
+
+### Q4. What are Terraform Providers? How do you pin versions and use multiple provider configurations (e.g., multi-region)?
+
+#### 📌 Short Explanation
+Providers are how Terraform talks to APIs. Tests version management and multi-region patterns.
+
+#### ✅ Answer
+A **provider** is a plugin that lets Terraform manage resources of a platform (AWS, Azure, Kubernetes, GitHub). You declare them in `required_providers`, pin versions, and use **aliases** for multiple configurations.
+
+#### 📖 Detailed Explanation
+
+**🔹 Declaring and pinning**
+```hcl
+terraform {
+  required_version = ">= 1.6.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = "ap-south-1"
+}
+```
+
+**🔹 Version constraints**
+
+| Constraint | Meaning |
+|-----------|---------|
+| `= 5.1.0` | Exactly that version |
+| `>= 5.0` | Minimum version |
+| `~> 5.1` | `>= 5.1, < 6.0` (allows minor/patch updates) |
+| `~> 5.1.0` | `>= 5.1.0, < 5.2.0` (patch updates only) |
+
+**🔹 Lock file:** `.terraform.lock.hcl` records exact provider versions and checksums — **commit it to Git** for reproducible runs. Upgrade with `terraform init -upgrade`.
+
+**🔹 Multiple regions using `alias`**
+```hcl
+provider "aws" {
+  alias  = "us_east"
+  region = "us-east-1"
+}
+
+resource "aws_acm_certificate" "cf_cert" {
+  provider    = aws.us_east      # CloudFront needs the cert in us-east-1
+  domain_name = "example.com"
+  validation_method = "DNS"
+}
+```
+
+**🔹 Authentication:** prefer **IAM roles / OIDC / environment credentials**; never hardcode keys in provider blocks. Use `assume_role` for cross-account deployments.
+
+<br>
+
+---
+
+### Q5. What is the difference between a Root Module and a Child Module? How do they exchange data?
+
+#### 📌 Short Explanation
+Builds on the modules topic. Tests how inputs and outputs flow between modules.
+
+#### ✅ Answer
+- **Root module** — the working directory where you run Terraform commands; every configuration has one.
+- **Child module** — a module **called** by another module using a `module` block.
+
+Data flows **down** through input variables and **up** through outputs.
+
+#### 📖 Detailed Explanation
+
+| Aspect | Root Module | Child Module |
+|--------|-------------|--------------|
+| **Entry point** | Where `terraform init/plan/apply` run | Called with `module "name" { source = ... }` |
+| **Providers & backend** | Configured here | Inherits providers from the caller (avoid defining `provider` inside) |
+| **Variables** | Set via `tfvars`, CLI, env | Set by the calling module's arguments |
+| **Outputs** | Shown after apply | Accessible as `module.<name>.<output>` |
+
+**🔹 Example**
+```text
+.
+├── main.tf              # root module
+├── variables.tf
+├── outputs.tf
+└── modules/
+    ├── vpc/             # child module
+    └── ec2/             # child module
+```
+
+```hcl
+module "vpc" {
+  source = "./modules/vpc"
+  cidr   = "10.0.0.0/16"
+}
+
+module "ec2" {
+  source    = "./modules/ec2"
+  subnet_id = module.vpc.private_subnet_ids[0]   # output of one module as input to another
+}
+```
+
+**🔹 Module best practices**
+- Keep modules **small and single-purpose**
+- Expose only necessary variables/outputs
+- **Version modules** (Git tag or registry version) and don't hardcode providers inside
+- Add `README`, examples, and validations
+
+<br>
+
+---
+
+### Q6. What is the Terraform Registry? How do you use public modules and publish private ones?
+
+#### 📌 Short Explanation
+Tests your ability to reuse community modules safely.
+
+#### ✅ Answer
+The **Terraform Registry** is a public catalog of **providers and modules**. You can consume modules with a `source` address and version, and use a **private registry** (HCP Terraform / Terraform Enterprise, or Git) for internal modules.
+
+#### 📖 Detailed Explanation
+
+**🔹 Using a public module**
+```hcl
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 5.0"
+
+  name = "prod-vpc"
+  cidr = "10.0.0.0/16"
+  azs             = ["ap-south-1a", "ap-south-1b"]
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
+  enable_nat_gateway = true
+}
+```
+
+**🔹 Module source types**
+
+| Source | Example |
+|--------|---------|
+| Local path | `./modules/vpc` |
+| Registry | `terraform-aws-modules/vpc/aws` |
+| GitHub / Git | `git::https://github.com/org/repo.git//modules/vpc?ref=v1.2.0` |
+| S3 / HTTP | `s3::https://s3.amazonaws.com/bucket/module.zip` |
+
+**🔹 Best practices**
+- **Always pin versions** (`version` or `?ref=tag`) — never track `main`
+- **Review third-party code** before use (supply-chain risk)
+- Use **verified/popular** modules; read inputs, outputs, and examples
+- Publish internal modules to a **private registry** with semantic versioning
+
+> 💡 Registry modules need a repository named `terraform-<PROVIDER>-<NAME>` to be published.
+
+<br>
+
+---
+
+### Q7. What are Terraform Workspaces? Are they the right way to manage dev/stage/prod?
+
+#### 📌 Short Explanation
+A popular opinion-based question. Tests your understanding of state isolation and environment strategy.
+
+#### ✅ Answer
+**Workspaces** let one configuration maintain **multiple state files** (one per workspace). They are good for similar, short-lived environments, but for strong isolation between **dev/stage/prod** most teams prefer **separate directories/backends and accounts**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Commands**
+```bash
+terraform workspace list
+terraform workspace new dev
+terraform workspace select prod
+terraform workspace show
+```
+
+**🔹 Using the workspace name**
+```hcl
+resource "aws_instance" "web" {
+  instance_type = terraform.workspace == "prod" ? "m5.large" : "t3.micro"
+  tags = { Environment = terraform.workspace }
+}
+```
+
+**🔹 Where state goes (S3 backend):** `env:/<workspace>/path/to/terraform.tfstate`
+
+**🔹 Workspaces vs separate directories**
+
+| Aspect | Workspaces | Separate directories / repos |
+|--------|-----------|------------------------------|
+| **Code** | Same code for all environments | Code can diverge per environment |
+| **State isolation** | Separate state files, same backend/credentials | Fully separate backends and accounts |
+| **Risk** | Easy to apply to the **wrong workspace** | Lower blast radius |
+| **Visibility** | Active workspace is not obvious in code | Clear in the folder structure |
+| **Best for** | Feature branches, temporary or identical environments | Production-grade multi-environment setups |
+
+> **Key takeaway:** Workspaces ≠ environments in every case. For production, use separate state, backends, and (ideally) separate AWS accounts. Don't confuse CLI workspaces with HCP Terraform workspaces.
+
+<br>
+
+---
+
+### Q8. What is a Remote Backend in Terraform? How do you set up S3 with locking?
+
+#### 📌 Short Explanation
+Tests team-collaboration and state-security practices.
+
+#### ✅ Answer
+A **backend** defines where Terraform stores its **state**. A **remote backend** (such as S3) stores state centrally so teams can collaborate, with **encryption, versioning, and locking**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Why remote state?**
+- Shared by team and CI/CD (no local `terraform.tfstate` files)
+- **Locking** prevents concurrent applies
+- Versioning, encryption, and access control
+- State can contain **sensitive values** and must be protected
+
+**🔹 S3 backend configuration**
+```hcl
+terraform {
+  backend "s3" {
+    bucket       = "my-company-tfstate"
+    key          = "prod/network/terraform.tfstate"
+    region       = "ap-south-1"
+    encrypt      = true
+    use_lockfile = true       # S3 native locking (Terraform 1.10+)
+  }
+}
+```
+
+**🔹 Setup checklist**
+1. Create the S3 bucket manually (or in a bootstrap config): **versioning ON**, **encryption ON**, **Block Public Access ON**
+2. Restrict access with IAM (state bucket accessible only to pipeline/admin roles)
+3. Run `terraform init` (use `-migrate-state` to move existing local state)
+
+**🔹 Locking options:** newer Terraform supports **S3 native lock files** (`use_lockfile = true`). The older approach used a **DynamoDB table** (`dynamodb_table`) with a `LockID` key, which is now deprecated — check the documentation for your Terraform version.
+
+**🔹 Split state by component** (network, database, app) to reduce blast radius and speed up plans; share data using `terraform_remote_state` or outputs.
+
+<br>
+
+---
+
+### Q9. What is State Locking? Scenario: you get `Error acquiring the state lock` — what do you do?
+
+#### 📌 Short Explanation
+A very common real-world issue. Tests careful handling of Terraform state.
+
+#### ✅ Answer
+**State locking** prevents two operations from modifying the same state simultaneously. If a lock error appears, first **find out who holds the lock** — only use `force-unlock` when you're sure no other run is active.
+
+#### 📖 Detailed Explanation
+
+**🔹 Typical error**
+```text
+Error: Error acquiring the state lock
+Lock Info:
+  ID:        3b8c1f6a-....
+  Operation: OperationTypeApply
+  Who:       user@laptop
+  Created:   2026-10-11 09:12:44 UTC
+```
+
+**🔹 Causes**
+- Another `plan/apply` is genuinely running (teammate or CI pipeline)
+- A previous run **crashed or was cancelled** (Ctrl+C, CI timeout), leaving a stale lock
+- Lock storage permission problems (missing S3/DynamoDB access)
+
+**🔹 Steps**
+1. Read `Who` and `Created` in the error; check CI pipelines and ask the team
+2. If another run is active → **wait**
+3. If confirmed stale:
+```bash
+terraform force-unlock <LOCK_ID>
+```
+4. Run `terraform plan` again to confirm state consistency
+
+**🔹 Prevention**
+- Use CI/CD with **one pipeline run per state** (queued/serialized)
+- Set `-lock-timeout=5m` so runs wait instead of failing
+- Avoid cancelling applies midway
+
+> ⚠️ Using `force-unlock` while someone is applying can **corrupt state**.
+
+<br>
+
+---
+
+### Q10. Scenario: Someone manually changed or deleted a resource in AWS. How do you detect and fix the drift?
+
+#### 📌 Short Explanation
+Tests knowledge of state, drift, `import`, and safe state manipulation.
+
+#### ✅ Answer
+Run `terraform plan` (or `plan -refresh-only`) to detect **drift**. Fix it by re-applying to match the code, updating the code to match reality, or **importing** resources into state.
+
+#### 📖 Detailed Explanation
+
+**🔹 What is state?** A mapping of your configuration to real resources (IDs, attributes). Terraform plans by comparing **config vs state vs real infrastructure**.
+
+**🔹 Detect drift**
+```bash
+terraform plan -refresh-only
+```
+
+**🔹 Scenarios and fixes**
+
+| Situation | Fix |
+|-----------|-----|
+| Resource modified manually | `terraform apply` to revert to code, **or** update code to accept the change |
+| Resource deleted manually | `terraform apply` recreates it |
+| Resource created manually, needs management | **Import** it |
+| Resource should no longer be managed | `terraform state rm <address>` (doesn't delete the real resource) |
+| Renamed a resource in code | Use a **`moved` block** to avoid destroy/recreate |
+
+**🔹 Import**
+```bash
+terraform import aws_s3_bucket.logs my-existing-bucket
+```
+Or declarative (Terraform 1.5+):
+```hcl
+import {
+  to = aws_s3_bucket.logs
+  id = "my-existing-bucket"
+}
+```
+
+**🔹 Refactor without recreation**
+```hcl
+moved {
+  from = aws_instance.web
+  to   = aws_instance.app
+}
+```
+
+**🔹 Prevent drift:** restrict console changes with IAM/SCPs, run scheduled `plan` in CI to alert on drift, and manage everything via IaC.
+
+<br>
+
+---
+
+### Q11. What are Data Sources? What is the difference between a `resource` and a `data` block?
+
+#### 📌 Short Explanation
+Tests your understanding of managing versus reading infrastructure.
+
+#### ✅ Answer
+- **`resource`** creates and manages infrastructure (full lifecycle).
+- **`data`** **reads** existing information; it never creates, changes, or destroys anything.
+
+#### 📖 Detailed Explanation
+
+| Aspect | `resource` | `data` |
+|--------|-----------|--------|
+| **Purpose** | Create / update / delete | Query existing objects |
+| **In state** | Yes, managed | Yes, as read-only |
+| **Reference** | `aws_instance.web.id` | `data.aws_ami.ubuntu.id` |
+
+**🔹 Example: look up the latest Ubuntu AMI and an existing VPC**
+```hcl
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]    # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+}
+
+data "aws_vpc" "main" {
+  tags = { Name = "prod-vpc" }
+}
+
+resource "aws_instance" "web" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.micro"
+  subnet_id     = data.aws_subnets.private.ids[0]
+}
+```
+
+**🔹 Reading another stack's outputs**
+```hcl
+data "terraform_remote_state" "network" {
+  backend = "s3"
+  config = {
+    bucket = "my-company-tfstate"
+    key    = "prod/network/terraform.tfstate"
+    region = "ap-south-1"
+  }
+}
+```
+
+**🔹 Common data sources:** `aws_caller_identity`, `aws_availability_zones`, `aws_iam_policy_document`, `aws_secretsmanager_secret_version`.
+
+> 💡 Using `most_recent = true` AMIs can cause unexpected replacements on later plans; pin AMIs in production or combine with `lifecycle { ignore_changes = [ami] }`.
+
+<br>
+
+---
+
+### Q12. What are Terraform Provisioners? Why are they considered a last resort?
+
+#### 📌 Short Explanation
+Tests whether you know the right tool for configuration versus provisioning.
+
+#### ✅ Answer
+**Provisioners** run scripts on the local machine or a remote resource during creation or destruction. HashiCorp recommends them only as a **last resort**, because they aren't declarative and aren't tracked in the plan.
+
+#### 📖 Detailed Explanation
+
+**🔹 Types**
+
+| Provisioner | Runs | Use |
+|-------------|------|-----|
+| `local-exec` | On the machine running Terraform | Call a script/CLI, trigger Ansible |
+| `remote-exec` | On the created resource (SSH/WinRM) | Run commands on the instance |
+| `file` | Copies files to the resource | Upload configs |
+
+**🔹 Example**
+```hcl
+resource "aws_instance" "web" {
+  ami           = "ami-0abcd1234"
+  instance_type = "t3.micro"
+
+  provisioner "local-exec" {
+    command = "echo ${self.private_ip} >> inventory.txt"
+  }
+
+  provisioner "remote-exec" {
+    inline = ["sudo apt-get update", "sudo apt-get install -y nginx"]
+  }
+
+  connection {
+    type        = "ssh"
+    user        = "ubuntu"
+    private_key = file("~/.ssh/id_rsa")
+    host        = self.public_ip
+  }
+}
+```
+
+**🔹 Why avoid them**
+- Not idempotent and not part of the plan/diff
+- Require network access (SSH) and credentials
+- If a provisioner **fails**, the resource is marked **tainted** (unless `on_failure = continue`)
+- Hard to test and troubleshoot
+
+**🔹 Better alternatives**
+
+| Need | Use instead |
+|------|-------------|
+| Bootstrap an instance | `user_data` / cloud-init, or **pre-baked AMIs** (Packer) |
+| Configure servers | **Ansible**, SSM State Manager |
+| Run arbitrary action on change | `terraform_data` with `triggers_replace` |
+
+**🔹 Destroy-time provisioner:** `when = destroy` runs before resource deletion (e.g., deregister from a service).
+
+<br>
+
+---
+
+### Q13. Explain Terraform Lifecycle rules. Scenario: how do you prevent accidental deletion and achieve zero-downtime replacement?
+
+#### 📌 Short Explanation
+Tests control over how Terraform creates, updates, and destroys resources.
+
+#### ✅ Answer
+The **`lifecycle`** block customizes resource behavior using `create_before_destroy`, `prevent_destroy`, `ignore_changes`, `replace_triggered_by`, and `precondition/postcondition`.
+
+#### 📖 Detailed Explanation
+
+| Argument | Purpose |
+|----------|---------|
+| `create_before_destroy` | Create the replacement **before** destroying the old resource |
+| `prevent_destroy` | Fails any plan that would destroy the resource |
+| `ignore_changes` | Ignore changes to listed attributes (e.g., changed outside Terraform) |
+| `replace_triggered_by` | Force replacement when another resource/attribute changes |
+| `precondition` / `postcondition` | Validate assumptions before/after creating |
+
+**🔹 Scenario 1: protect production database**
+```hcl
+resource "aws_db_instance" "prod" {
+  # ...
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+```
+
+**🔹 Scenario 2: zero-downtime AMI rollout**
+```hcl
+resource "aws_launch_template" "web" {
+  name_prefix = "web-"
+  image_id    = var.ami_id
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+```
+
+**🔹 Scenario 3: autoscaling changes `desired_capacity`**
+```hcl
+resource "aws_autoscaling_group" "web" {
+  # ...
+  lifecycle {
+    ignore_changes = [desired_capacity]
+  }
+}
+```
+
+**🔹 Scenario 4: validate input**
+```hcl
+lifecycle {
+  precondition {
+    condition     = data.aws_ami.ubuntu.architecture == "x86_64"
+    error_message = "AMI must be x86_64."
+  }
+}
+```
+
+> ⚠️ `prevent_destroy` only protects against destroy **through Terraform plans**; deleting the block from the code removes the protection. Also enable **deletion protection** on the cloud resource.
+
+<br>
+
+---
+
+### Q14. Explain Terraform Variables. What is the order of variable precedence?
+
+#### 📌 Short Explanation
+Very common. Tests how inputs are provided and which value wins.
+
+#### ✅ Answer
+**Input variables** parameterize configurations. If a variable is set in multiple places, the **later/higher-precedence source wins**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Declaring variables**
+```hcl
+variable "instance_type" {
+  type        = string
+  description = "EC2 instance type"
+  default     = "t3.micro"
+
+  validation {
+    condition     = contains(["t3.micro", "t3.small", "t3.medium"], var.instance_type)
+    error_message = "Instance type must be t3.micro, t3.small, or t3.medium."
+  }
+}
+
+variable "db_password" {
+  type      = string
+  sensitive = true
+}
+```
+
+**🔹 Types:** `string`, `number`, `bool`, `list(...)`, `set(...)`, `map(...)`, `object({...})`, `tuple([...])`
+
+**🔹 Precedence (lowest → highest)**
+1. Default value in `variable` block
+2. Environment variables (`TF_VAR_name`)
+3. `terraform.tfvars` / `terraform.tfvars.json`
+4. `*.auto.tfvars` / `*.auto.tfvars.json` (alphabetical order)
+5. `-var` and `-var-file` on the command line (**highest**, processed in order given)
+
+```bash
+export TF_VAR_instance_type="t3.small"
+terraform apply -var-file="prod.tfvars" -var="instance_type=m5.large"
+```
+
+**🔹 Variables vs Locals vs Outputs**
+
+| Concept | Purpose |
+|---------|---------|
+| **Variable** | Input from outside the module |
+| **Local** | Internal computed value to avoid repetition |
+| **Output** | Value exposed from the module |
+
+```hcl
+locals {
+  name_prefix = "${var.project}-${var.env}"
+}
+```
+
+> ⚠️ `sensitive = true` hides values in CLI output but they are **still stored in plain text in the state file**.
+
+<br>
+
+---
+
+### Q15. What are Terraform Outputs and how are they used between modules and stacks?
+
+#### 📌 Short Explanation
+Outputs expose information and connect modules and configurations.
+
+#### ✅ Answer
+**Outputs** expose values after `apply` — to the CLI, to parent modules, and to other configurations through remote state.
+
+#### 📖 Detailed Explanation
+
+**🔹 Defining outputs**
+```hcl
+output "vpc_id" {
+  description = "ID of the VPC"
+  value       = aws_vpc.main.id
+}
+
+output "db_endpoint" {
+  value     = aws_db_instance.main.endpoint
+  sensitive = true
+}
+```
+
+**🔹 Using outputs**
+```bash
+terraform output
+terraform output -raw vpc_id
+terraform output -json
+```
+
+**🔹 Between modules**
+```hcl
+# modules/vpc/outputs.tf
+output "private_subnet_ids" { value = aws_subnet.private[*].id }
+
+# root main.tf
+module "app" {
+  source     = "./modules/app"
+  subnet_ids = module.vpc.private_subnet_ids
+}
+```
+
+**🔹 Between stacks:** read another state's outputs via `data "terraform_remote_state"`, or consume IDs via SSM Parameter Store / data sources for looser coupling.
+
+**🔹 Key points**
+- Child module values are only visible to the parent if declared as outputs
+- `sensitive = true` hides from CLI output, but not from state
+- Use `depends_on` in outputs only when there is a hidden dependency
+
+<br>
+
+---
+
+### Q16. What is the difference between `count` and `for_each`? Scenario: removing an item from the middle of a list recreates resources — why?
+
+#### 📌 Short Explanation
+A classic Terraform gotcha. Tests understanding of how resources are addressed in state.
+
+#### ✅ Answer
+- **`count`** creates instances indexed by **number** (`[0]`, `[1]`, ...).
+- **`for_each`** creates instances keyed by **string keys** from a map or set.
+
+Removing an item from the middle of a `count` list **shifts the indexes**, so Terraform destroys and recreates later resources. `for_each` avoids this because keys are stable.
+
+#### 📖 Detailed Explanation
+
+| Aspect | `count` | `for_each` |
+|--------|---------|-----------|
+| **Input** | Number | Map or set of strings |
+| **Address** | `aws_instance.web[0]` | `aws_instance.web["api"]` |
+| **Reference current item** | `count.index` | `each.key`, `each.value` |
+| **Removing a middle item** | ❌ Shifts indexes → recreation | ✅ Only that item is destroyed |
+| **Conditional creation** | ✅ `count = var.enabled ? 1 : 0` | Possible but less common |
+| **Best for** | Identical copies, on/off toggles | Distinct named items |
+
+**🔹 The problem with `count`**
+```hcl
+variable "users" { default = ["alice", "bob", "carol"] }
+
+resource "aws_iam_user" "u" {
+  count = length(var.users)
+  name  = var.users[count.index]
+}
+```
+Remove `"bob"` → `carol` moves from index 2 to 1 → Terraform destroys and recreates `carol` (and destroys index 2).
+
+**🔹 The fix with `for_each`**
+```hcl
+resource "aws_iam_user" "u" {
+  for_each = toset(var.users)
+  name     = each.key
+}
+```
+Addresses are `aws_iam_user.u["alice"]`, `["bob"]`, `["carol"]` — deleting `bob` touches only `bob`.
+
+**🔹 Conditional resource using `count`**
+```hcl
+resource "aws_eip" "nat" {
+  count = var.create_nat ? 1 : 0
+}
+```
+
+> ⚠️ `for_each` keys must be **known at plan time** (you can't use values that depend on not-yet-created resources).
+
+<br>
+
+---
+
+### Q17. Scenario: `terraform plan` shows an unexpected destroy and recreate of a critical resource. How do you investigate?
+
+#### 📌 Short Explanation
+Tests careful plan review and root-cause skills before applying changes in production.
+
+#### ✅ Answer
+**Don't apply.** Read the plan to find which attribute forces replacement (`# forces replacement`), then fix the code, use `moved` blocks/`ignore_changes`, or confirm provider/version changes.
+
+#### 📖 Detailed Explanation
+
+**🔹 Step 1: Find what forces replacement**
+```text
+# aws_instance.web must be replaced
+-/+ resource "aws_instance" "web" {
+      ~ ami = "ami-111" -> "ami-222"  # forces replacement
+```
+
+**🔹 Common causes and fixes**
+
+| Cause | Fix |
+|-------|-----|
+| `most_recent` AMI data source changed | Pin the AMI, or `ignore_changes = [ami]` |
+| Resource renamed in code or moved into a module | Use a **`moved` block** |
+| Changed an immutable attribute (subnet, name, engine) | Intentional? Plan a migration; otherwise revert |
+| `count` index shifted | Switch to `for_each` |
+| Provider or Terraform version upgrade changed behavior | Check changelog; pin versions |
+| Drift from manual changes | `plan -refresh-only`, align code with reality |
+| State mismatch (wrong workspace/backend) | Verify backend, workspace, and credentials |
+
+**🔹 Step 2: Protect and verify**
+- Add `prevent_destroy` to critical resources
+- Review the plan in a **PR** before apply; use `terraform show tfplan`
+- Use `terraform plan -target=` only for investigation or emergencies, not as a routine
+
+**🔹 Useful commands**
+```bash
+terraform state list
+terraform state show aws_instance.web
+terraform plan -out=tfplan && terraform show -json tfplan | jq '.resource_changes[] | select(.change.actions != ["no-op"])'
+```
+
+<br>
+
+---
+
+### Q18. Scenario: How do you handle secrets in Terraform and protect the state file?
+
+#### 📌 Short Explanation
+Tests security awareness — a major interview focus.
+
+#### ✅ Answer
+Never hardcode secrets in `.tf` files or Git. Fetch them from **Secrets Manager / SSM / Vault**, mark variables `sensitive`, and **encrypt and restrict the remote state**, because state can contain plain-text secrets.
+
+#### 📖 Detailed Explanation
+
+**🔹 Key facts**
+- `sensitive = true` only hides values in CLI output — they remain in **state in plain text**
+- Anyone with read access to the state can read those secrets
+
+**🔹 Best practices**
+- ✅ Remote backend with **encryption (KMS), versioning, restricted IAM**, access logging
+- ✅ Read secrets at runtime using data sources:
+```hcl
+data "aws_secretsmanager_secret_version" "db" {
+  secret_id = "prod/db/credentials"
+}
+```
+- ✅ Let the database **manage its own password** (`manage_master_user_password = true` for RDS) so it never appears in code
+- ✅ Pass secrets via `TF_VAR_` environment variables or CI secret stores — never commit `*.tfvars` with secrets
+- ✅ Use **ephemeral values/resources** (newer Terraform versions) to keep secrets out of state where supported
+- ✅ Add `*.tfstate`, `*.tfvars`, `.terraform/` to `.gitignore`
+- ✅ Scan with **tfsec / Checkov / Trivy** and secret scanners (gitleaks) in CI
+
+**🔹 Pipelines:** use **OIDC** (e.g., GitHub Actions → AWS role) instead of long-lived access keys.
+
+<br>
+
+---
+
+### Q19. Scenario: Design a Terraform CI/CD pipeline for a team.
+
+#### 📌 Short Explanation
+Brings together backends, locking, modules, and security in a real workflow.
+
+#### ✅ Answer
+Run `fmt/validate/plan` on every **pull request**, post the plan for review, and run `apply` only on **merge to main** using a remote backend with locking and short-lived credentials.
+
+#### 📖 Detailed Explanation
+
+**🔹 Pipeline stages**
+```text
+PR opened → fmt → validate → tflint / tfsec / checkov → plan (comment on PR)
+Review & approve → merge to main → plan (saved) → manual approval (prod) → apply
+Scheduled → plan -refresh-only → drift alert
+```
+
+**🔹 Sample GitHub Actions snippet**
+```yaml
+- uses: hashicorp/setup-terraform@v3
+- run: terraform init -input=false
+- run: terraform fmt -check
+- run: terraform validate
+- run: terraform plan -out=tfplan -input=false
+- if: github.ref == 'refs/heads/main'
+  run: terraform apply -input=false tfplan
+```
+
+**🔹 Best practices**
+- Remote backend + **locking**; one pipeline run per state
+- Separate state per environment/component; different AWS accounts for prod
+- **OIDC roles**, least privilege for pipeline identity
+- Pin Terraform, provider, and module versions
+- Policy as code (OPA/Sentinel) and cost estimation (Infracost)
+- Manual approval gates for production applies
+
+<br>
+
+---
+
 <br>
 
 <a id="docker"></a>
-# 🐳 TOPIC 6: DOCKER
+# 🐳 TOPIC 7: DOCKER
 
 > Container troubleshooting, Dockerfile instructions, storage, cleanup, registries, CMD vs ENTRYPOINT and daily commands.
 
@@ -3588,7 +5995,7 @@ docker rm -f <container-id>
 <br>
 
 <a id="kubernetes"></a>
-# ☸️ TOPIC 7: KUBERNETES
+# ☸️ TOPIC 8: KUBERNETES
 
 > Architecture, Services, Ingress, networking, deployment & rollback strategies, scheduling, probes and troubleshooting.
 
@@ -5264,9 +7671,612 @@ Kubelet → CRI → Container Runtime (e.g., containerd)
 <br>
 
 <a id="observability"></a>
-# 📊 TOPIC 8: OBSERVABILITY
+# 📊 TOPIC 9: OBSERVABILITY
 
-> 🚧 **Coming soon** — notes for this section are actively being updated.
+> Monitoring vs observability, metrics/logs/traces, Prometheus & PromQL, Grafana & Alertmanager, SLI/SLO/SLA, golden signals, alerting, logging stacks, tracing and incident scenarios.
+
+<br>
+
+---
+
+### Q1. What is the difference between Monitoring and Observability?
+
+#### 📌 Short Explanation
+A foundational question. Interviewers want to see that you understand monitoring answers *known* questions, while observability helps you investigate *unknown* problems.
+
+#### ✅ Answer
+- **Monitoring** tells you **that** something is wrong (CPU is 95%, error rate is up) using predefined metrics and alerts.
+- **Observability** helps you understand **why** it is wrong by exploring metrics, logs, and traces without having to predict the failure in advance.
+
+#### 📖 Detailed Explanation
+
+| Aspect | Monitoring | Observability |
+|--------|-----------|---------------|
+| **Question answered** | "Is the system healthy?" | "Why is the system behaving this way?" |
+| **Approach** | Predefined dashboards and thresholds | Ad-hoc exploration of rich telemetry |
+| **Handles** | Known failure modes ("known-knowns") | Unknown failure modes ("unknown-unknowns") |
+| **Data** | Mostly metrics | Metrics + Logs + Traces (+ events, profiles) |
+| **Example** | Alert: "5xx rate > 5%" | Trace shows one slow DB query in the checkout service causing the 5xx |
+
+> **Key takeaway:** Monitoring is a **subset** of observability. You monitor to detect; you use observability to diagnose.
+
+<br>
+
+---
+
+### Q2. What are the three pillars of observability? Explain with examples.
+
+#### 📌 Short Explanation
+Tests whether you know which signal to use for which problem.
+
+#### ✅ Answer
+The three pillars are **Metrics**, **Logs**, and **Traces**.
+
+#### 📖 Detailed Explanation
+
+| Pillar | What it is | Best for | Tools |
+|--------|-----------|----------|-------|
+| **Metrics** | Numeric time-series values (CPU, request rate, latency) | Trends, alerting, capacity planning | Prometheus, CloudWatch, Datadog |
+| **Logs** | Timestamped records of discrete events | Detailed root-cause debugging | ELK, Loki, CloudWatch Logs, Splunk |
+| **Traces** | End-to-end path of a single request across services | Finding which service or call is slow | Jaeger, Tempo, AWS X-Ray, Zipkin |
+
+**🔹 How they work together**
+1. A **metric** alert fires: p95 latency is high.
+2. A **trace** shows the slowness is in the `payment-service → DB` call.
+3. **Logs** from `payment-service` for that trace ID reveal a connection-pool timeout.
+
+> 💡 Link them with a common **trace ID / correlation ID** present in logs and traces.
+
+<br>
+
+---
+
+### Q3. Explain the Prometheus architecture. Why does Prometheus use a pull model?
+
+#### 📌 Short Explanation
+Prometheus is the de-facto metrics standard in Kubernetes environments. Interviewers expect you to know its components and data flow.
+
+#### ✅ Answer
+Prometheus **scrapes (pulls)** metrics over HTTP from targets at regular intervals, stores them in a local time-series database (TSDB), evaluates rules, and sends alerts to **Alertmanager**. Grafana is typically used for visualization.
+
+#### 📖 Detailed Explanation
+
+**🔹 Core components**
+
+| Component | Role |
+|-----------|------|
+| **Prometheus Server** | Scrapes targets, stores TSDB data, evaluates rules, serves PromQL |
+| **Exporters** | Expose metrics for systems that don't natively do it (node_exporter, mysqld_exporter) |
+| **Service Discovery** | Finds targets dynamically (Kubernetes, EC2, Consul) |
+| **Pushgateway** | Accepts metrics from short-lived batch jobs |
+| **Alertmanager** | Deduplicates, groups, routes, and silences alerts |
+| **Grafana** | Dashboards and visualization |
+
+**🔹 Flow**
+```text
+Targets (/metrics) <--scrape-- Prometheus --alerts--> Alertmanager --> Slack / PagerDuty / Email
+                                    |
+                                    +--PromQL--> Grafana
+```
+
+**🔹 Why pull?**
+- Prometheus **knows if a target is down** (a failed scrape sets `up == 0`)
+- Easier to run multiple Prometheus servers against the same targets
+- Targets stay simple: just expose `/metrics`
+- You can manually `curl` a target's metrics endpoint to debug
+
+**🔹 When push is needed**
+Short-lived jobs (cron, batch) may finish before being scraped, so they push to the **Pushgateway**.
+
+<br>
+
+---
+
+### Q4. What are the Prometheus metric types? Explain Counter, Gauge, Histogram, and Summary.
+
+#### 📌 Short Explanation
+Choosing the wrong metric type leads to wrong graphs and wrong alerts. This is a common differences question.
+
+#### ✅ Answer
+- **Counter** — only goes up (resets on restart)
+- **Gauge** — goes up and down
+- **Histogram** — samples observations into configurable buckets
+- **Summary** — calculates quantiles on the client side
+
+#### 📖 Detailed Explanation
+
+| Type | Behavior | Example | Typical query |
+|------|----------|---------|---------------|
+| **Counter** | Monotonically increasing | `http_requests_total` | `rate(http_requests_total[5m])` |
+| **Gauge** | Can increase or decrease | `memory_usage_bytes`, `queue_length` | Use value directly |
+| **Histogram** | Buckets + `_sum` + `_count` | `http_request_duration_seconds` | `histogram_quantile(0.95, ...)` |
+| **Summary** | Pre-computed quantiles | `rpc_duration_seconds{quantile="0.99"}` | Read quantile directly |
+
+**🔹 Histogram vs Summary**
+
+| Aspect | Histogram | Summary |
+|--------|-----------|---------|
+| Quantile calculated | Server side (PromQL) | Client side |
+| Aggregation across instances | ✅ Yes | ❌ No (quantiles can't be averaged) |
+| Flexibility | Can change quantile later | Fixed at instrumentation time |
+
+> **Key takeaway:** Prefer **histograms** in distributed systems because they can be aggregated across pods.
+
+<br>
+
+---
+
+### Q5. Write PromQL queries for request rate, error percentage, and p95 latency.
+
+#### 📌 Short Explanation
+A practical question to check hands-on PromQL ability.
+
+#### ✅ Answer
+Use `rate()` on counters, divide for ratios, and `histogram_quantile()` for percentiles.
+
+#### 📖 Detailed Explanation
+
+**🔹 Requests per second (per service)**
+```promql
+sum(rate(http_requests_total[5m])) by (service)
+```
+
+**🔹 Error percentage (5xx)**
+```promql
+100 *
+sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+/
+sum(rate(http_requests_total[5m])) by (service)
+```
+
+**🔹 p95 latency**
+```promql
+histogram_quantile(0.95,
+  sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+```
+
+**🔹 Pods using more than 80% of memory limit**
+```promql
+container_memory_working_set_bytes / on(pod) kube_pod_container_resource_limits{resource="memory"} > 0.8
+```
+
+**🔹 `rate` vs `irate` vs `increase`**
+
+| Function | Use |
+|----------|-----|
+| `rate()` | Per-second average over the range — best for alerts and dashboards |
+| `irate()` | Instant rate from the last two samples — good for fast-moving graphs |
+| `increase()` | Total increase over the range |
+
+<br>
+
+---
+
+### Q6. What is the difference between Prometheus and Grafana? Where does Alertmanager fit?
+
+#### 📌 Short Explanation
+Many candidates confuse the roles. This checks whether you understand each tool's responsibility.
+
+#### ✅ Answer
+- **Prometheus** collects, stores, and queries metrics, and evaluates alert rules.
+- **Grafana** visualizes data from many sources (Prometheus, Loki, CloudWatch, Elasticsearch).
+- **Alertmanager** receives alerts from Prometheus and handles notification routing.
+
+#### 📖 Detailed Explanation
+
+| Tool | Responsibility | Stores data? |
+|------|---------------|--------------|
+| **Prometheus** | Scrape, store, query, evaluate alert rules | ✅ Yes (TSDB) |
+| **Grafana** | Dashboards, visual exploration, unified alerting | ❌ No (reads from data sources) |
+| **Alertmanager** | Group, deduplicate, silence, route alerts | ❌ Only alert state |
+
+**🔹 Alertmanager features**
+- **Grouping** — many alerts become one notification
+- **Inhibition** — suppress "pod down" alerts if "node down" is already firing
+- **Silencing** — mute alerts during maintenance
+- **Routing** — critical → PagerDuty, warning → Slack
+
+**🔹 Sample alert rule**
+```yaml
+groups:
+- name: app-alerts
+  rules:
+  - alert: HighErrorRate
+    expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "5xx error rate above 5% for 10 minutes"
+```
+
+<br>
+
+---
+
+### Q7. What are SLI, SLO, and SLA? What is an error budget?
+
+#### 📌 Short Explanation
+Tests Site Reliability Engineering (SRE) fundamentals and your ability to link monitoring to business goals.
+
+#### ✅ Answer
+- **SLI** — the measurement (e.g., % of successful requests)
+- **SLO** — the internal target for that measurement (e.g., 99.9%)
+- **SLA** — the contractual promise to customers, with penalties
+- **Error budget** — the allowed unreliability = `100% − SLO`
+
+#### 📖 Detailed Explanation
+
+| Term | Meaning | Example |
+|------|---------|---------|
+| **SLI** | Service Level **Indicator** | Successful requests / total requests |
+| **SLO** | Service Level **Objective** | 99.9% success over 30 days |
+| **SLA** | Service Level **Agreement** | Refund credits if availability < 99.5% |
+
+**🔹 Error budget example**
+- SLO = 99.9% over 30 days → budget = 0.1% ≈ **43 minutes** of downtime per month
+- Budget remaining → ship features faster
+- Budget exhausted → freeze risky releases, focus on reliability
+
+**🔹 Rule of thumb:** SLO should be **stricter** than SLA so you can react before breaching the contract.
+
+<br>
+
+---
+
+### Q8. What are the Four Golden Signals? Explain the difference between the RED and USE methods.
+
+#### 📌 Short Explanation
+Interviewers use this to see if you have a structured approach to deciding *what* to monitor.
+
+#### ✅ Answer
+- **Golden Signals (Google SRE):** Latency, Traffic, Errors, Saturation
+- **RED method:** Rate, Errors, Duration — for **services/requests**
+- **USE method:** Utilization, Saturation, Errors — for **resources** (CPU, disk, network)
+
+#### 📖 Detailed Explanation
+
+| Method | Focus | Signals | Example |
+|--------|-------|---------|---------|
+| **Golden Signals** | Any user-facing system | Latency, Traffic, Errors, Saturation | API gateway dashboard |
+| **RED** | Microservices | Rate, Errors, Duration | Requests/sec, 5xx %, p95 latency of `orders` service |
+| **USE** | Infrastructure | Utilization, Saturation, Errors | CPU %, run-queue length, disk errors on a node |
+
+> **Key takeaway:** Use **RED for services** and **USE for infrastructure**. Together they cover both the application and the platform.
+
+<br>
+
+---
+
+### Q9. Scenario: You get a 2 AM alert that API latency is high. Walk through your investigation.
+
+#### 📌 Short Explanation
+A classic incident-response scenario. Interviewers want a calm, structured, data-driven approach.
+
+#### ✅ Answer
+Confirm impact → check recent changes → narrow down using metrics → traces → logs → mitigate first → root cause later.
+
+#### 📖 Detailed Explanation
+
+**🔹 Step 1: Assess impact**
+- Which endpoints and what percentage of users? Check the RED dashboard.
+
+**🔹 Step 2: Check recent changes**
+- New deployment, config change, feature flag, traffic spike, or cloud event?
+
+**🔹 Step 3: Narrow down using metrics**
+```promql
+histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+```
+- Is it one service or all? Compare with CPU, memory, DB connections, and queue depth.
+
+**🔹 Step 4: Use traces**
+- Open slow traces in Jaeger/Tempo/X-Ray and find the slowest span (DB, external API, cache).
+
+**🔹 Step 5: Check logs**
+```bash
+kubectl logs deploy/payment-service --since=15m | grep -i -E "timeout|error"
+```
+
+**🔹 Step 6: Mitigate**
+- Roll back the deployment, scale out, restart a stuck pod, or disable the faulty feature flag.
+
+**🔹 Step 7: Post-incident**
+- Write a blameless postmortem, add missing alerts/dashboards, and create action items.
+
+> **Key takeaway:** **Mitigate first, investigate later.** Restore service, then find the root cause.
+
+<br>
+
+---
+
+### Q10. Scenario: Your team is suffering from alert fatigue. How do you fix it?
+
+#### 📌 Short Explanation
+Tests your maturity in designing alerts that are actionable rather than noisy.
+
+#### ✅ Answer
+Alert on **symptoms** (user impact), not every cause; make each alert **actionable**; add `for:` durations, grouping, and severity routing; review alerts regularly.
+
+#### 📖 Detailed Explanation
+
+| Problem | Fix |
+|---------|-----|
+| Alerts fire on short spikes | Add `for: 5m–10m` |
+| Too many duplicate alerts | Use Alertmanager **grouping** and **inhibition** |
+| Alerts with no action needed | Delete them or downgrade to dashboard-only |
+| Everything pages the on-call | Route by **severity** (page vs ticket vs Slack) |
+| Static thresholds fail | Use SLO **burn-rate** alerts |
+| No ownership | Add `team` labels and runbook links in annotations |
+
+**🔹 Good alert checklist**
+- ✅ Does it indicate user impact?
+- ✅ Is there a clear action?
+- ✅ Does it link to a runbook?
+- ✅ Is it reviewed monthly?
+
+**🔹 Cause vs symptom**
+- ❌ Page for "CPU > 80%" (may not hurt users)
+- ✅ Page for "error rate > 5% for 10 minutes"
+
+<br>
+
+---
+
+### Q11. What is the difference between the ELK stack and Loki (PLG stack)?
+
+#### 📌 Short Explanation
+Log aggregation choices affect cost and performance. This is a common tool-comparison question.
+
+#### ✅ Answer
+- **ELK** (Elasticsearch, Logstash, Kibana) **fully indexes log content**, giving powerful search at higher cost.
+- **Loki** indexes only **labels** and stores log lines compressed, making it cheaper and simpler, and it integrates natively with Grafana.
+
+#### 📖 Detailed Explanation
+
+| Aspect | ELK / EFK | Loki (Promtail + Loki + Grafana) |
+|--------|-----------|----------------------------------|
+| **Indexing** | Full-text index of every field | Labels only (like Prometheus) |
+| **Storage cost** | High | Low (object storage such as S3) |
+| **Query language** | KQL / Lucene | LogQL |
+| **Search power** | Excellent full-text analytics | Good for filtering by labels, then grep |
+| **Operations** | Heavier (JVM, shard management) | Lightweight |
+| **Best for** | Complex log analytics, security/SIEM | Kubernetes logs correlated with metrics |
+
+**🔹 LogQL example**
+```logql
+{app="payment", namespace="prod"} |= "error" | json | status >= 500
+```
+
+**🔹 Log shippers**
+- **Fluent Bit / Fluentd / Filebeat** — ELK/EFK
+- **Promtail / Grafana Alloy** — Loki
+
+> 💡 Always use **structured (JSON) logging** with trace IDs and avoid logging secrets or PII.
+
+<br>
+
+---
+
+### Q12. What is distributed tracing? Explain OpenTelemetry, trace, and span.
+
+#### 📌 Short Explanation
+In microservices, one user request can touch many services. Tracing shows the whole journey.
+
+#### ✅ Answer
+**Distributed tracing** follows a single request across services. A **trace** is the full journey; a **span** is one unit of work within it. **OpenTelemetry (OTel)** is the vendor-neutral standard for generating and exporting metrics, logs, and traces.
+
+#### 📖 Detailed Explanation
+
+**🔹 Concepts**
+
+| Term | Meaning |
+|------|---------|
+| **Trace** | End-to-end record of one request (has a Trace ID) |
+| **Span** | A single operation (HTTP call, DB query) with start time, duration, and tags |
+| **Context propagation** | Passing the trace ID between services via headers (e.g., W3C `traceparent`) |
+| **Sampling** | Recording only a percentage of traces to control cost |
+
+**🔹 Example trace**
+```text
+GET /checkout (320 ms)
+ ├─ auth-service         (20 ms)
+ ├─ cart-service         (40 ms)
+ └─ payment-service      (240 ms)
+     └─ SELECT orders... (210 ms)  ← bottleneck
+```
+
+**🔹 OpenTelemetry pipeline**
+```text
+App (OTel SDK) → OTel Collector → Jaeger / Tempo / X-Ray / Datadog
+```
+- The **Collector** receives, processes (batch, filter), and exports telemetry to any backend, avoiding vendor lock-in.
+
+**🔹 Sampling types**
+- **Head-based:** decide at the start of the request
+- **Tail-based:** decide after the trace is complete (keep slow/error traces)
+
+<br>
+
+---
+
+### Q13. Scenario: Prometheus memory usage keeps growing and it eventually crashes. What could be the cause?
+
+#### 📌 Short Explanation
+The classic cause is **high cardinality**. This tests your understanding of how Prometheus stores data.
+
+#### ✅ Answer
+Most likely **high-cardinality labels** (user IDs, request IDs, full URLs) creating millions of unique time series. Fix by removing those labels, relabeling, and limiting retention and scrape scope.
+
+#### 📖 Detailed Explanation
+
+**🔹 What is cardinality?**
+Each unique combination of label values is a separate time series. `http_requests_total{user_id="..."}` with 1M users creates 1M series.
+
+**🔹 Investigate**
+```promql
+topk(10, count by (__name__)({__name__=~".+"}))
+```
+```bash
+# Prometheus UI → Status → TSDB Status shows top series and label cardinality
+```
+
+**🔹 Fixes**
+- Remove unbounded labels (`user_id`, `session_id`, `ip`, raw URL paths)
+- Drop metrics/labels using `metric_relabel_configs`
+- Reduce scrape targets or increase scrape interval
+- Set sensible `--storage.tsdb.retention.time`
+- Set `sample_limit` per scrape job
+- Use recording rules for expensive queries
+- Shard Prometheus or move to a scalable backend (Thanos, Mimir, VictoriaMetrics)
+
+```yaml
+metric_relabel_configs:
+  - action: labeldrop
+    regex: user_id
+```
+
+> **Key takeaway:** Labels should have **bounded, low-cardinality** values.
+
+<br>
+
+---
+
+### Q14. Scenario: A target shows as DOWN in Prometheus (or isn't scraped at all). How do you troubleshoot?
+
+#### 📌 Short Explanation
+Tests your knowledge of the scrape pipeline: discovery → relabeling → network → endpoint.
+
+#### ✅ Answer
+Check **Status → Targets** in the Prometheus UI, then verify service discovery/labels, network reachability, the `/metrics` endpoint, and authentication.
+
+#### 📖 Detailed Explanation
+
+**🔹 Step 1: Look at the error in Status → Targets**
+- `connection refused` → app not listening / wrong port
+- `context deadline exceeded` → timeout, firewall, or slow endpoint
+- `401/403` → auth or TLS config missing
+- `server returned HTTP status 404` → wrong `metrics_path`
+
+**🔹 Step 2: Target not listed at all**
+- Check service discovery config, `ServiceMonitor`/`PodMonitor` label selectors (Prometheus Operator), and `relabel_configs` (a `keep`/`drop` rule may remove it)
+
+**🔹 Step 3: Test connectivity from inside the cluster**
+```bash
+kubectl exec -it prometheus-0 -- wget -qO- http://my-service:8080/metrics | head
+```
+
+**🔹 Step 4: Check NetworkPolicy, Security Groups, and port names** (service port name must match `ServiceMonitor` endpoint port)
+
+**🔹 Step 5: Use the `up` metric**
+```promql
+up{job="my-app"} == 0
+```
+
+<br>
+
+---
+
+### Q15. How do you make Prometheus highly available and store data long term?
+
+#### 📌 Short Explanation
+A single Prometheus server has local storage and is a single point of failure. This checks your knowledge of scaling observability.
+
+#### ✅ Answer
+Run **two identical Prometheus replicas** scraping the same targets for HA, and use **Thanos, Cortex/Mimir, or VictoriaMetrics** for long-term storage and a global query view.
+
+#### 📖 Detailed Explanation
+
+| Option | How it works |
+|--------|-------------|
+| **HA pair** | Two Prometheus servers scrape the same targets; Alertmanager deduplicates alerts |
+| **Thanos** | Sidecar uploads TSDB blocks to S3/GCS; Querier gives a global view; Compactor downsamples |
+| **Mimir / Cortex** | Prometheus `remote_write` into a horizontally scalable, multi-tenant backend |
+| **Federation** | A global Prometheus scrapes selected metrics from regional Prometheus servers |
+
+**🔹 Remote write example**
+```yaml
+remote_write:
+  - url: https://mimir.example.com/api/v1/push
+```
+
+**🔹 Key points**
+- Local TSDB is not meant for years of retention
+- Use **downsampling** for long-term queries
+- Run Alertmanager as a **cluster** (gossip) for HA
+
+<br>
+
+---
+
+### Q16. Scenario: How would you monitor a Kubernetes cluster end to end?
+
+#### 📌 Short Explanation
+Tests whether you know which components expose which metrics and how to cover cluster, node, pod, and application layers.
+
+#### ✅ Answer
+Use **kube-prometheus-stack** (Prometheus Operator, Grafana, Alertmanager) with **node-exporter**, **kube-state-metrics**, and **cAdvisor**, plus Loki for logs and OpenTelemetry/Jaeger for traces.
+
+#### 📖 Detailed Explanation
+
+| Layer | What to monitor | Source |
+|-------|----------------|--------|
+| **Node** | CPU, memory, disk, network | `node-exporter` |
+| **Container / Pod** | CPU, memory usage, throttling, restarts | `cAdvisor` (kubelet) |
+| **Kubernetes objects** | Pod phase, Deployment replicas, HPA, PVC status | `kube-state-metrics` |
+| **Control plane** | API server latency, etcd health, scheduler | Control plane metrics endpoints |
+| **Application** | RED metrics, business KPIs | App `/metrics` |
+| **Logs** | Container stdout/stderr | Fluent Bit / Promtail → Loki/ELK |
+
+**🔹 Install**
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm install monitoring prometheus-community/kube-prometheus-stack -n monitoring --create-namespace
+```
+
+**🔹 Key alerts to create**
+- Pod `CrashLoopBackOff` or high restart count
+- Node `NotReady`
+- PVC almost full
+- Deployment replicas unavailable
+- CPU throttling and OOMKilled containers
+- API server error rate
+
+> 💡 **kube-state-metrics** exposes the *state* of objects; **node-exporter** and **cAdvisor** expose *resource usage*.
+
+<br>
+
+---
+
+### Q17. What is the difference between synthetic monitoring, RUM, and APM?
+
+#### 📌 Short Explanation
+Tests awareness of monitoring from the user's perspective, not just from the server side.
+
+#### ✅ Answer
+- **Synthetic monitoring** uses scripted probes to test availability from outside.
+- **RUM (Real User Monitoring)** collects performance data from real users' browsers.
+- **APM (Application Performance Monitoring)** instruments application code for transactions, traces, and errors.
+
+#### 📖 Detailed Explanation
+
+| Type | Data source | Strength | Example tools |
+|------|-------------|----------|---------------|
+| **Synthetic** | Scheduled scripted checks | Detects outages before users do; 24x7 coverage | Prometheus Blackbox Exporter, CloudWatch Synthetics, Pingdom |
+| **RUM** | Real browsers/mobile apps | True user experience (page load, Core Web Vitals) | Datadog RUM, New Relic Browser |
+| **APM** | Application agents/SDKs | Code-level bottlenecks, traces, errors | Datadog APM, New Relic, Dynatrace, Elastic APM |
+
+**🔹 Blackbox probe example**
+```yaml
+- job_name: blackbox
+  metrics_path: /probe
+  params:
+    module: [http_2xx]
+  static_configs:
+    - targets: ["https://www.example.com"]
+```
+
+> **Key takeaway:** Synthetic = *"Is it up?"*, RUM = *"How do real users feel?"*, APM = *"Which code is slow?"*
 
 <br>
 
@@ -5274,10 +8284,9 @@ Kubelet → CRI → Container Runtime (e.g., containerd)
 
 <br>
 
-<a id="aws"></a>
-# ☁️ TOPIC 9: AWS
 
-> 🚧 **Coming soon** — notes for this section are actively being updated.
+
+
 
 <br>
 
@@ -5285,10 +8294,1582 @@ Kubelet → CRI → Container Runtime (e.g., containerd)
 
 <br>
 
-<a id="azure"></a>
-# 🔷 TOPIC 10: AZURE
+<a id="ansible"></a>
+# 🅰️ TOPIC 10: ANSIBLE
 
-> 🚧 **Coming soon** — notes for this section are actively being updated.
+> Architecture, inventory, playbooks & roles, modules, idempotency, handlers, variables, Vault, templates, rolling deployments, troubleshooting and AWX.
+
+<br>
+
+---
+
+### Q1. What is Ansible and how does it work? Why is it called agentless?
+
+#### 📌 Short Explanation
+The opening Ansible question. Interviewers check your understanding of its architecture and why teams adopt it.
+
+#### ✅ Answer
+**Ansible** is an open-source automation tool for configuration management, application deployment, and orchestration. It is **agentless**: the control node connects to managed nodes over **SSH** (Linux) or **WinRM** (Windows) and runs small modules there, so nothing needs to be installed on the targets (apart from Python on Linux for most modules).
+
+#### 📖 Detailed Explanation
+
+**🔹 Architecture**
+```text
+Control Node (ansible, playbooks, inventory)
+      │  SSH / WinRM (push)
+      ▼
+Managed Nodes (web1, web2, db1 ...)  ← modules copied, executed, removed
+```
+
+**🔹 Key components**
+
+| Component | Description |
+|-----------|-------------|
+| **Control node** | Machine where Ansible runs |
+| **Inventory** | List of managed hosts and groups |
+| **Playbook** | YAML file describing desired state |
+| **Module** | Unit of work (`apt`, `service`, `copy`) |
+| **Role** | Reusable, structured collection of tasks/vars/templates |
+| **Facts** | Auto-gathered system information (`ansible_os_family`) |
+
+**🔹 Why teams like it**
+- No agents to install or maintain · simple YAML · **idempotent** modules · large module ecosystem · works for servers, network devices, and cloud APIs
+
+**🔹 Ad-hoc vs playbook**
+```bash
+ansible all -i inventory.ini -m ping                              # ad-hoc
+ansible webservers -m apt -a "name=nginx state=present" -b        # ad-hoc with sudo
+ansible-playbook -i inventory.ini site.yml                        # playbook
+```
+
+<br>
+
+---
+
+### Q2. What is the difference between Ansible and Terraform? Can they be used together?
+
+#### 📌 Short Explanation
+A very common comparison question. Tests whether you know provisioning vs configuration management.
+
+#### ✅ Answer
+- **Terraform** — **provisions infrastructure** (VPC, EC2, RDS) declaratively and tracks it in **state**.
+- **Ansible** — **configures** what runs on servers (packages, files, services) and orchestrates deployments; it is **stateless**.
+
+They complement each other: Terraform creates the servers, Ansible configures them.
+
+#### 📖 Detailed Explanation
+
+| Aspect | Terraform | Ansible |
+|--------|-----------|---------|
+| **Primary purpose** | Infrastructure provisioning | Configuration management and orchestration |
+| **Approach** | Declarative | Mostly declarative modules, procedural task order |
+| **State** | Maintains a state file | No state (checks the current system each run) |
+| **Language** | HCL | YAML |
+| **Agent** | None (API calls) | None (SSH/WinRM) |
+| **Strength** | Lifecycle of cloud resources, dependency graph | Server setup, app deployment, rolling updates |
+| **Immutable vs mutable** | Favors immutable infrastructure | Typically mutable servers |
+
+**🔹 Combined workflow**
+1. Terraform creates EC2/VPC/RDS and outputs IPs or tags
+2. Ansible uses a **dynamic inventory** (`aws_ec2` plugin) to discover instances by tag
+3. Ansible installs packages, deploys configs, and starts services
+
+> 💡 Many teams reduce Ansible's role by baking **golden AMIs** (Packer, with Ansible as the provisioner) and using containers.
+
+<br>
+
+---
+
+### Q3. What is the difference between Ansible, Chef, and Puppet?
+
+#### 📌 Short Explanation
+Tests your awareness of the configuration management landscape.
+
+#### ✅ Answer
+Ansible is **agentless and push-based** using YAML. Chef and Puppet are traditionally **agent-based and pull-based**, using Ruby-based DSLs, with a master server.
+
+#### 📖 Detailed Explanation
+
+| Feature | Ansible | Puppet | Chef |
+|---------|---------|--------|------|
+| **Architecture** | Agentless (SSH/WinRM) | Agent + Puppet Server | Agent (chef-client) + Chef Server |
+| **Model** | Push (pull possible with `ansible-pull`) | Pull | Pull |
+| **Language** | YAML | Puppet DSL | Ruby DSL |
+| **Learning curve** | Easy | Moderate | Steeper |
+| **Setup effort** | Minimal | Server + agents | Server + agents |
+| **Best for** | Quick adoption, orchestration, ad-hoc tasks | Large, long-lived fleets with strict drift control | Developer-centric, code-heavy environments |
+
+> **Key takeaway:** Ansible wins on simplicity and low overhead; pull-based tools constantly enforce drift correction on large fleets.
+
+<br>
+
+---
+
+### Q4. Explain Ansible Inventory. What is the difference between static and dynamic inventory?
+
+#### 📌 Short Explanation
+Tests how Ansible knows which hosts to manage, especially in cloud environments where IPs change.
+
+#### ✅ Answer
+- **Static inventory** — a manually maintained file listing hosts/groups (INI or YAML).
+- **Dynamic inventory** — generated automatically from a source (AWS EC2, Azure, GCP, Kubernetes) using plugins.
+
+#### 📖 Detailed Explanation
+
+**🔹 Static inventory (`inventory.ini`)**
+```ini
+[webservers]
+web1 ansible_host=10.0.1.10
+web2 ansible_host=10.0.1.11
+
+[dbservers]
+db1 ansible_host=10.0.2.10 ansible_user=ubuntu
+
+[prod:children]
+webservers
+dbservers
+
+[prod:vars]
+ansible_ssh_private_key_file=~/.ssh/prod.pem
+```
+
+**🔹 Dynamic inventory (AWS) — `aws_ec2.yml`**
+```yaml
+plugin: amazon.aws.aws_ec2
+regions:
+  - ap-south-1
+filters:
+  tag:Environment: prod
+keyed_groups:
+  - key: tags.Role
+    prefix: role
+```
+```bash
+ansible-inventory -i aws_ec2.yml --graph
+ansible-playbook -i aws_ec2.yml site.yml
+```
+
+**🔹 Comparison**
+
+| Aspect | Static | Dynamic |
+|--------|--------|---------|
+| **Maintenance** | Manual | Automatic |
+| **Best for** | Small, stable environments | Auto Scaling, cloud, containers |
+| **Grouping** | Manual groups | Tags/attributes → groups |
+
+**🔹 Variables:** place per-group/host values in `group_vars/` and `host_vars/` directories.
+
+<br>
+
+---
+
+### Q5. Explain the structure of an Ansible playbook and roles. How does Ansible Galaxy help?
+
+#### 📌 Short Explanation
+Tests your ability to write clean, reusable automation.
+
+#### ✅ Answer
+A **playbook** contains one or more **plays**; each play maps **hosts** to **tasks**. **Roles** package tasks, handlers, templates, files, and variables into reusable units, and **Galaxy** is the hub for sharing roles/collections.
+
+#### 📖 Detailed Explanation
+
+**🔹 Simple playbook**
+```yaml
+---
+- name: Configure web servers
+  hosts: webservers
+  become: true
+  vars:
+    http_port: 80
+
+  tasks:
+    - name: Install nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: true
+
+    - name: Ensure nginx is running and enabled
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+```
+
+**🔹 Role structure (`ansible-galaxy init nginx`)**
+```text
+roles/nginx/
+├── tasks/main.yml
+├── handlers/main.yml
+├── templates/nginx.conf.j2
+├── files/
+├── vars/main.yml          # high precedence
+├── defaults/main.yml      # lowest precedence (easy to override)
+└── meta/main.yml          # dependencies
+```
+
+**🔹 Using a role**
+```yaml
+- hosts: webservers
+  roles:
+    - role: nginx
+      vars:
+        http_port: 8080
+```
+
+**🔹 Galaxy and collections**
+```bash
+ansible-galaxy install geerlingguy.docker
+ansible-galaxy collection install amazon.aws
+ansible-galaxy install -r requirements.yml
+```
+
+**🔹 Best practices:** one role per concern, use FQCN module names (`ansible.builtin.copy`), pin role/collection versions in `requirements.yml`, lint with **ansible-lint**.
+
+<br>
+
+---
+
+### Q6. What is the difference between the `command`, `shell`, `raw`, and `script` modules?
+
+#### 📌 Short Explanation
+A frequently asked modules question that tests safe automation practices.
+
+#### ✅ Answer
+Prefer purpose-built modules (`apt`, `service`, `copy`) first. If you must run commands: `command` (safe, no shell), `shell` (uses shell features), `raw` (no Python needed), `script` (run a local script remotely).
+
+#### 📖 Detailed Explanation
+
+| Module | Uses shell? | Needs Python on target? | Pipes / redirects / env vars | Use case |
+|--------|-------------|-------------------------|------------------------------|----------|
+| `command` | ❌ No | ✅ Yes | ❌ Not supported | Simple commands (default and safer) |
+| `shell` | ✅ Yes (`/bin/sh`) | ✅ Yes | ✅ Supported | Pipes, `&&`, redirects |
+| `raw` | Direct SSH | ❌ No | ✅ | Bootstrap hosts without Python, network devices |
+| `script` | Runs a local script on remote | ❌ Not for execution | ✅ (inside script) | Run existing scripts |
+
+**🔹 Examples**
+```yaml
+- name: Run a simple command
+  ansible.builtin.command: uptime
+
+- name: Use a pipe (needs shell)
+  ansible.builtin.shell: "ps aux | grep nginx | wc -l"
+
+- name: Install Python on a bare host
+  ansible.builtin.raw: apt-get install -y python3
+```
+
+**🔹 Important:** `command`/`shell` are **not idempotent** by default — use `creates:`, `removes:`, `changed_when`, and `when` to make them safe.
+
+<br>
+
+---
+
+### Q7. What is idempotency in Ansible? Scenario: a playbook always shows "changed" — how do you fix it?
+
+#### 📌 Short Explanation
+Idempotency is Ansible's core principle. Tests how well you write safe, repeatable automation.
+
+#### ✅ Answer
+An operation is **idempotent** if running it multiple times produces the same result as running it once. Ansible modules check the current state and only change what is needed. Tasks using `command`/`shell` need explicit conditions to behave idempotently.
+
+#### 📖 Detailed Explanation
+
+**🔹 Idempotent vs non-idempotent**
+```yaml
+# ✅ Idempotent — no change on second run
+- ansible.builtin.apt:
+    name: nginx
+    state: present
+
+# ❌ Not idempotent — appends every time
+- ansible.builtin.shell: echo "export PATH=/opt/bin:$PATH" >> /etc/profile
+```
+
+**🔹 Fix with the right module**
+```yaml
+- ansible.builtin.lineinfile:
+    path: /etc/profile
+    line: 'export PATH=/opt/bin:$PATH'
+```
+
+**🔹 Fix a command task with `creates` / `changed_when`**
+```yaml
+- name: Initialize database once
+  ansible.builtin.command: /opt/app/init_db.sh
+  args:
+    creates: /var/lib/app/.initialized
+
+- name: Check config validity (read-only)
+  ansible.builtin.command: nginx -t
+  register: nginx_test
+  changed_when: false
+```
+
+**🔹 Verify idempotency**
+```bash
+ansible-playbook site.yml           # first run: changed
+ansible-playbook site.yml           # second run should show changed=0
+ansible-playbook site.yml --check --diff   # dry run
+```
+
+<br>
+
+---
+
+### Q8. What are Handlers? Scenario: restart nginx only when its configuration changes.
+
+#### 📌 Short Explanation
+Tests event-driven task execution and avoiding unnecessary restarts.
+
+#### ✅ Answer
+**Handlers** are tasks that run **only when notified** by another task that reports `changed`. They run **once at the end of the play** even if notified multiple times.
+
+#### 📖 Detailed Explanation
+
+**🔹 Example**
+```yaml
+- name: Configure nginx
+  hosts: webservers
+  become: true
+  tasks:
+    - name: Deploy nginx config
+      ansible.builtin.template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
+        validate: nginx -t -c %s
+      notify: Restart nginx
+
+  handlers:
+    - name: Restart nginx
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+```
+
+**🔹 Behavior**
+- If the template didn't change → handler **does not run** (no needless restart)
+- Multiple notifications → handler runs **once**
+- Handlers run at the end of the play; force earlier execution with `meta: flush_handlers`
+- If a task fails, pending handlers don't run unless `--force-handlers`
+
+**🔹 Use `reload` over `restart`** for services that support it, to avoid downtime.
+
+<br>
+
+---
+
+### Q9. What is the order of variable precedence in Ansible? What is the difference between `vars`, `group_vars`, `defaults`, and `extra-vars`?
+
+#### 📌 Short Explanation
+Tests your understanding of where variables can live and which one wins.
+
+#### ✅ Answer
+Ansible has many variable sources. In practice, remember: **role `defaults` are the lowest**, inventory and `group_vars`/`host_vars` are in the middle, play/task `vars` are higher, and **`--extra-vars` (`-e`) always wins**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Simplified precedence (low → high)**
+1. Role `defaults/main.yml`
+2. Inventory `group_vars` / `host_vars`
+3. Facts and registered variables
+4. Play `vars`, `vars_files`
+5. Role `vars/main.yml`
+6. Task `vars`, `include_vars`, `set_fact`
+7. **Extra vars (`-e`)** — highest
+
+| Location | Typical use |
+|----------|-------------|
+| `defaults/` | Safe overridable role defaults |
+| `group_vars/<group>.yml` | Environment-level values (prod, staging) |
+| `host_vars/<host>.yml` | Host-specific overrides |
+| `vars:` in play | Playbook-specific values |
+| `-e` | One-off overrides from CLI/CI |
+
+```bash
+ansible-playbook deploy.yml -e "app_version=2.4.1 env=prod"
+```
+
+**🔹 Facts vs variables:** facts come from the `setup` module (`ansible_distribution`, `ansible_default_ipv4.address`); disable with `gather_facts: false` to speed up large runs.
+
+<br>
+
+---
+
+### Q10. What is Ansible Vault? Scenario: how do you keep secrets out of Git?
+
+#### 📌 Short Explanation
+Tests secure handling of sensitive data in automation.
+
+#### ✅ Answer
+**Ansible Vault** encrypts variables or whole files (AES-256) so secrets can be safely stored in version control and decrypted at runtime with a password or password file.
+
+#### 📖 Detailed Explanation
+
+**🔹 Commands**
+```bash
+ansible-vault create group_vars/prod/vault.yml
+ansible-vault encrypt secrets.yml
+ansible-vault edit group_vars/prod/vault.yml
+ansible-vault view secrets.yml
+ansible-vault rekey secrets.yml
+ansible-vault encrypt_string 'S3cr3t!' --name 'db_password'
+```
+
+**🔹 Running with Vault**
+```bash
+ansible-playbook site.yml --ask-vault-pass
+ansible-playbook site.yml --vault-password-file ~/.vault_pass
+ansible-playbook site.yml --vault-id prod@prompt
+```
+
+**🔹 Best-practice layout**
+```text
+group_vars/prod/
+├── vars.yml      # db_password: "{{ vault_db_password }}"
+└── vault.yml     # encrypted: vault_db_password: ...
+```
+This keeps variable names visible/greppable while values stay encrypted.
+
+**🔹 Best practices**
+- Never commit the vault password file; store it in a **CI secret store**
+- Use **separate vault IDs** per environment
+- Use `no_log: true` on tasks handling secrets to avoid leaking them in logs
+- For enterprise setups, integrate with **HashiCorp Vault / AWS Secrets Manager** lookups
+
+<br>
+
+---
+
+### Q11. What is the difference between the `template` and `copy` modules? What is Jinja2?
+
+#### 📌 Short Explanation
+Tests how you manage configuration files across environments.
+
+#### ✅ Answer
+- **`copy`** copies a file **as-is**.
+- **`template`** renders a **Jinja2** template (with variables, loops, conditionals) and then copies the result.
+
+#### 📖 Detailed Explanation
+
+| Aspect | `copy` | `template` |
+|--------|--------|-----------|
+| **Content** | Static | Dynamic (variables processed) |
+| **Source location** | `files/` | `templates/` (`.j2`) |
+| **Use case** | Binaries, static configs | Configs that differ per host/env |
+
+**🔹 Template example — `nginx.conf.j2`**
+```jinja
+server {
+    listen {{ http_port | default(80) }};
+    server_name {{ inventory_hostname }};
+
+{% for app in apps %}
+    location /{{ app.name }} {
+        proxy_pass http://127.0.0.1:{{ app.port }};
+    }
+{% endfor %}
+}
+```
+
+**🔹 Task**
+```yaml
+- ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/conf.d/app.conf
+    owner: root
+    mode: '0644'
+    backup: true
+  notify: Reload nginx
+```
+
+**🔹 Common Jinja2 filters:** `default()`, `join`, `upper`, `to_json`, `regex_replace`, `int`.
+
+<br>
+
+---
+
+### Q12. How do you use conditionals, loops, `register`, and `block/rescue` in Ansible?
+
+#### 📌 Short Explanation
+Tests control-flow skills for real playbooks.
+
+#### ✅ Answer
+Use **`when`** for conditions, **`loop`** for iteration, **`register`** to capture task results, and **`block/rescue/always`** for error handling.
+
+#### 📖 Detailed Explanation
+
+**🔹 `when` and facts**
+```yaml
+- name: Install Apache on Debian family
+  ansible.builtin.apt:
+    name: apache2
+  when: ansible_os_family == "Debian"
+```
+
+**🔹 `loop`**
+```yaml
+- name: Create users
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    groups: "{{ item.groups }}"
+  loop:
+    - { name: alice, groups: dev }
+    - { name: bob,   groups: ops }
+```
+
+**🔹 `register` and use the result**
+```yaml
+- name: Check if app is listening
+  ansible.builtin.command: ss -ltn sport = :8080
+  register: port_check
+  changed_when: false
+  failed_when: "'8080' not in port_check.stdout"
+```
+
+**🔹 `block / rescue / always`**
+```yaml
+- block:
+    - name: Deploy new version
+      ansible.builtin.command: /opt/deploy.sh {{ version }}
+  rescue:
+    - name: Roll back
+      ansible.builtin.command: /opt/rollback.sh
+  always:
+    - name: Send notification
+      ansible.builtin.debug:
+        msg: "Deployment finished (success or rollback)"
+```
+
+**🔹 Other useful keywords:** `ignore_errors`, `failed_when`, `changed_when`, `until/retries/delay`, `tags`, `delegate_to`, `run_once`.
+
+<br>
+
+---
+
+### Q13. Scenario: Deploy an application to 100 web servers behind a load balancer without downtime. How do you do it with Ansible?
+
+#### 📌 Short Explanation
+A classic real-world scenario. Tests rolling updates, safety controls, and orchestration.
+
+#### ✅ Answer
+Use **`serial`** to update in small batches, **deregister each server from the load balancer**, deploy, run health checks, **re-register**, and stop on failure with **`max_fail_percentage`**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Rolling update playbook**
+```yaml
+- name: Rolling deployment
+  hosts: webservers
+  become: true
+  serial: "10%"                 # or 5, or [1, 5, "25%"] for canary-style batches
+  max_fail_percentage: 0        # stop immediately on any failure
+
+  pre_tasks:
+    - name: Remove from load balancer
+      community.aws.elb_target:
+        target_group_arn: "{{ tg_arn }}"
+        target_id: "{{ instance_id }}"
+        state: absent
+      delegate_to: localhost
+
+  tasks:
+    - name: Deploy application
+      ansible.builtin.unarchive:
+        src: "app-{{ version }}.tar.gz"
+        dest: /opt/app
+      notify: Restart app
+
+    - name: Flush handlers so restart happens before health check
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for health check
+      ansible.builtin.uri:
+        url: "http://localhost:8080/health"
+        status_code: 200
+      register: result
+      until: result.status == 200
+      retries: 10
+      delay: 5
+
+  post_tasks:
+    - name: Add back to load balancer
+      community.aws.elb_target:
+        target_group_arn: "{{ tg_arn }}"
+        target_id: "{{ instance_id }}"
+        state: present
+      delegate_to: localhost
+
+  handlers:
+    - name: Restart app
+      ansible.builtin.service:
+        name: myapp
+        state: restarted
+```
+
+**🔹 Key controls**
+
+| Feature | Purpose |
+|---------|---------|
+| `serial` | Batch size for rolling updates |
+| `max_fail_percentage` | Abort when too many hosts fail |
+| `delegate_to: localhost` | Run LB/API tasks from the control node |
+| Health check with `until` | Don't proceed until the app is healthy |
+| `run_once` | Execute a task once per play (e.g., DB migration) |
+
+<br>
+
+---
+
+### Q14. Scenario: Ansible shows `UNREACHABLE!` for some hosts. How do you troubleshoot?
+
+#### 📌 Short Explanation
+Connection problems are the most common Ansible failure. Tests systematic troubleshooting.
+
+#### ✅ Answer
+Verify **network reachability, SSH access, user/key, inventory variables, and Python availability** — using `-vvv` for detailed connection output.
+
+#### 📖 Detailed Explanation
+
+**🔹 Typical error**
+```text
+web1 | UNREACHABLE! => {"msg": "Failed to connect to the host via ssh: Permission denied (publickey)."}
+```
+
+**🔹 Steps**
+1. **Test the connection manually**
+```bash
+ssh -i ~/.ssh/key.pem ubuntu@10.0.1.10
+ansible web1 -m ping -vvv
+```
+2. **Network:** Security Group / firewall allows port 22 from the control node; host is up; correct IP in inventory
+3. **Authentication:** correct `ansible_user`, key file permissions (`chmod 400`), correct `ansible_ssh_private_key_file`, key present in `authorized_keys`
+4. **Host key issues:** first connection prompts — set `host_key_checking` appropriately (understand the security trade-off), or pre-populate `known_hosts`
+5. **Python missing:** `"/usr/bin/python: not found"` → set `ansible_python_interpreter=/usr/bin/python3` or bootstrap using the `raw` module
+6. **Privilege escalation:** `become` failing → check sudoers and `become_method`
+7. **Bastion/jump host:**
+```ini
+ansible_ssh_common_args='-o ProxyJump=ec2-user@bastion.example.com'
+```
+8. **Timeouts:** raise `timeout` in `ansible.cfg` or tune `ControlPersist` / `pipelining` for performance
+
+| Error | Likely cause |
+|-------|--------------|
+| `Permission denied (publickey)` | Wrong user/key |
+| `Connection timed out` | Firewall/SG/network |
+| `Connection refused` | SSH service not running |
+| `Missing sudo password` | `become` needs a password or NOPASSWD |
+
+<br>
+
+---
+
+### Q15. Scenario: How do you safely test and run a playbook against a subset of hosts or specific tasks?
+
+#### 📌 Short Explanation
+Tests operational safety — essential for production automation.
+
+#### ✅ Answer
+Use **`--check --diff`** (dry run), **`--limit`** (host subset), **`--tags`** (specific tasks), and **`--start-at-task`/`--step`** for controlled execution.
+
+#### 📖 Detailed Explanation
+
+```bash
+# Dry run: show what WOULD change
+ansible-playbook site.yml --check --diff
+
+# Only one group or host
+ansible-playbook site.yml --limit web1
+ansible-playbook site.yml --limit 'webservers:!web3'
+
+# Only tagged tasks
+ansible-playbook site.yml --tags "nginx,config"
+ansible-playbook site.yml --skip-tags "slow"
+
+# Validate syntax and lint
+ansible-playbook site.yml --syntax-check
+ansible-lint site.yml
+
+# List what will run
+ansible-playbook site.yml --list-hosts --list-tasks
+
+# Step through interactively / resume
+ansible-playbook site.yml --step
+ansible-playbook site.yml --start-at-task "Deploy application"
+```
+
+**🔹 Tagging tasks**
+```yaml
+- name: Deploy config
+  ansible.builtin.template:
+    src: app.conf.j2
+    dest: /etc/app.conf
+  tags: [config]
+```
+
+**🔹 Notes:** `--check` isn't perfect for `command`/`shell` tasks (they're skipped unless `check_mode: false`); test in **staging** and use **Molecule** to test roles.
+
+<br>
+
+---
+
+### Q16. What are Ansible Tower / AWX, and what is the difference between push mode and `ansible-pull`?
+
+#### 📌 Short Explanation
+Tests enterprise usage and execution models.
+
+#### ✅ Answer
+**AWX** (upstream, open source) and **Red Hat Ansible Automation Platform / Tower** provide a **web UI, REST API, RBAC, scheduling, credentials management, and audit logs** on top of Ansible. **`ansible-pull`** flips the model: nodes pull playbooks from Git and apply them locally.
+
+#### 📖 Detailed Explanation
+
+**🔹 AWX / Tower features**
+- Centralized **credential storage** (users never see SSH keys/passwords)
+- **Job templates**, workflows, scheduling, notifications
+- **RBAC**, audit trails, REST API for CI/CD integration
+- Dynamic inventory sync, surveys for runtime inputs
+
+**🔹 Push vs Pull**
+
+| Aspect | Push (`ansible-playbook`) | Pull (`ansible-pull`) |
+|--------|--------------------------|----------------------|
+| **Initiated by** | Control node | Each managed node |
+| **Scales to** | Hundreds (use forks) | Very large or unreachable/auto-scaling nodes |
+| **Network** | Control node needs SSH access to targets | Nodes need access to Git only |
+| **Use case** | Deployments, orchestration | Self-configuring nodes on boot, edge devices |
+
+```bash
+ansible-pull -U https://github.com/org/ansible-config.git -i localhost, site.yml
+```
+
+**🔹 Performance tuning:** increase `forks`, enable **SSH pipelining** and `ControlPersist`, disable fact gathering when not needed, use `strategy: free`, and use `async/poll` for long tasks.
+
+<br>
+
+---
+
+<br>
+
+<a id="bash-scripting"></a>
+# 📜 TOPIC 11: BASH SCRIPTING
+
+> Strict mode, special variables, conditionals, quoting, redirection, text processing, loops, functions, arrays, error handling, practical automation scripts and cron troubleshooting.
+
+<br>
+
+---
+
+### Q1. What are shebang, exit codes, and `set -euo pipefail`? Why do production scripts use them?
+
+#### 📌 Short Explanation
+Tests scripting fundamentals and defensive programming habits.
+
+#### ✅ Answer
+The **shebang** (`#!/bin/bash`) tells the OS which interpreter to use. Every command returns an **exit code** (`0` = success, non-zero = failure). `set -euo pipefail` makes a script **fail fast** instead of silently continuing after errors.
+
+#### 📖 Detailed Explanation
+
+**🔹 Basics**
+```bash
+#!/bin/bash
+echo "Hello"
+echo "Last command exit code: $?"
+```
+```bash
+chmod +x script.sh
+./script.sh
+```
+
+**🔹 Strict mode**
+```bash
+#!/bin/bash
+set -euo pipefail
+```
+
+| Option | Effect |
+|--------|--------|
+| `-e` | Exit immediately if a command fails |
+| `-u` | Treat **unset variables** as errors |
+| `-o pipefail` | A pipeline fails if **any** command in it fails (not just the last) |
+
+**🔹 Why `pipefail` matters**
+```bash
+set -e
+false | true; echo "continues"      # without pipefail, pipeline succeeds
+set -o pipefail
+false | true; echo "never reached"  # pipeline fails → script exits
+```
+
+**🔹 Exit codes to remember**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | General error |
+| `2` | Misuse of shell command |
+| `126` | Command found but not executable |
+| `127` | Command not found |
+| `130` | Terminated by Ctrl+C |
+
+> ⚠️ `set -e` has edge cases (e.g., inside `if`, `&&`/`||` chains); for critical logic, check exit codes explicitly.
+
+<br>
+
+---
+
+### Q2. What is the difference between `$@`, `$*`, `$#`, `$0`, `$$`, `$!`, and `$?`?
+
+#### 📌 Short Explanation
+A very common bash question testing special parameters.
+
+#### ✅ Answer
+These are special shell variables for arguments and process information. The key trap is `"$@"` vs `"$*"`.
+
+#### 📖 Detailed Explanation
+
+| Variable | Meaning |
+|----------|---------|
+| `$0` | Script name |
+| `$1 … $9` | Positional arguments |
+| `$#` | Number of arguments |
+| `$@` | All arguments (each preserved as a separate word when quoted) |
+| `$*` | All arguments (joined into **one string** when quoted) |
+| `$?` | Exit status of the last command |
+| `$$` | PID of the current shell/script |
+| `$!` | PID of the last background process |
+
+**🔹 `"$@"` vs `"$*"`**
+```bash
+#!/bin/bash
+# Run: ./demo.sh "hello world" foo
+for arg in "$@"; do echo "[$arg]"; done
+# [hello world]
+# [foo]
+
+for arg in "$*"; do echo "[$arg]"; done
+# [hello world foo]
+```
+
+> **Key takeaway:** Almost always use **`"$@"`** to pass arguments through safely.
+
+**🔹 Argument validation**
+```bash
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <source> <dest>" >&2
+  exit 1
+fi
+```
+
+<br>
+
+---
+
+### Q3. What is the difference between `[ ]`, `[[ ]]`, and `(( ))` in Bash?
+
+#### 📌 Short Explanation
+Tests knowledge of conditional constructs and common portability and quoting pitfalls.
+
+#### ✅ Answer
+- **`[ ]`** — POSIX `test` command (portable, requires careful quoting)
+- **`[[ ]]`** — Bash keyword with safer, richer features (pattern matching, regex, `&&`/`||`)
+- **`(( ))`** — arithmetic evaluation
+
+#### 📖 Detailed Explanation
+
+| Feature | `[ ]` | `[[ ]]` | `(( ))` |
+|---------|-------|---------|---------|
+| **Portable (sh)** | ✅ | ❌ Bash/Zsh/Ksh | ❌ Bash |
+| **Word splitting on unquoted vars** | ⚠️ Yes (must quote) | ✅ Safe | n/a |
+| **Pattern match (`== *.txt`)** | ❌ | ✅ | ❌ |
+| **Regex (`=~`)** | ❌ | ✅ | ❌ |
+| **Logical operators** | `-a`, `-o` (discouraged) | `&&`, `\|\|` | `&&`, `\|\|` |
+| **Numeric compare** | `-eq -lt -gt` | `-eq -lt -gt` | `== < >` |
+
+**🔹 Examples**
+```bash
+[ -f /etc/passwd ] && echo "exists"
+
+if [[ $name == dev-* ]]; then echo "dev env"; fi
+if [[ $email =~ ^[a-z]+@example\.com$ ]]; then echo "valid"; fi
+
+if (( count > 10 )); then echo "big"; fi
+(( total = a + b ))
+```
+
+**🔹 Common file tests:** `-f` file, `-d` directory, `-e` exists, `-r/-w/-x` permissions, `-s` non-empty, `-z` empty string, `-n` non-empty string.
+
+<br>
+
+---
+
+### Q4. What is the difference between single quotes, double quotes, and backticks? Why should you always quote variables?
+
+#### 📌 Short Explanation
+Quoting bugs cause real production incidents (e.g., `rm -rf $dir/` with an empty variable).
+
+#### ✅ Answer
+- **Single quotes `'...'`** — literal, no expansion
+- **Double quotes `"..."`** — expand variables and commands, prevent word splitting/globbing
+- **Backticks `` `cmd` ``** — old command substitution; prefer **`$(cmd)`**
+
+#### 📖 Detailed Explanation
+
+```bash
+name="DevOps"
+echo 'Hello $name'        # Hello $name
+echo "Hello $name"        # Hello DevOps
+echo "Today is $(date +%F)"
+```
+
+**🔹 Why quote?**
+```bash
+file="my report.txt"
+rm $file          # ❌ tries to delete "my" and "report.txt"
+rm "$file"        # ✅ deletes "my report.txt"
+```
+
+**🔹 `$(...)` vs backticks:** `$(...)` nests cleanly and is easier to read.
+```bash
+echo "$(basename "$(dirname "$path")")"
+```
+
+**🔹 Parameter expansion (very handy)**
+
+| Syntax | Meaning |
+|--------|---------|
+| `${var:-default}` | Use `default` if unset/empty |
+| `${var:?message}` | Error and exit if unset |
+| `${#var}` | Length |
+| `${var%.txt}` | Remove suffix |
+| `${var#*/}` | Remove shortest prefix match |
+| `${var^^}` / `${var,,}` | Upper / lower case |
+
+> 💡 Dangerous pattern protection: `rm -rf "${DIR:?DIR is not set}/"*`
+
+<br>
+
+---
+
+### Q5. Explain redirection and pipes: `>`, `>>`, `2>`, `2>&1`, `&>`, `/dev/null`, and `|`. What are stdout and stderr?
+
+#### 📌 Short Explanation
+Essential for logging, cron jobs, and troubleshooting.
+
+#### ✅ Answer
+Every process has **stdin (0)**, **stdout (1)**, and **stderr (2)**. Redirection controls where they go; pipes connect one command's stdout to another's stdin.
+
+#### 📖 Detailed Explanation
+
+| Syntax | Meaning |
+|--------|---------|
+| `cmd > file` | Redirect stdout (overwrite) |
+| `cmd >> file` | Redirect stdout (append) |
+| `cmd 2> err.log` | Redirect stderr |
+| `cmd > out.log 2>&1` | stdout **and** stderr to the same file |
+| `cmd &> all.log` | Bash shorthand for the above |
+| `cmd > /dev/null 2>&1` | Discard all output |
+| `cmd1 \| cmd2` | Pipe stdout of cmd1 into cmd2 |
+| `cmd \| tee file` | Show on screen **and** write to file |
+| `cmd < file` | Read stdin from file |
+
+**🔹 Order matters**
+```bash
+cmd > out.log 2>&1     # ✅ both go to out.log
+cmd 2>&1 > out.log     # ❌ stderr goes to the terminal, only stdout to the file
+```
+
+**🔹 Here-doc**
+```bash
+cat <<EOT > /etc/app.conf
+port=8080
+env=${ENV}
+EOT
+```
+
+**🔹 Logging pattern for scripts**
+```bash
+exec > >(tee -a /var/log/myscript.log) 2>&1
+echo "Started at $(date)"
+```
+
+<br>
+
+---
+
+### Q6. What is the difference between running `./script.sh`, `bash script.sh`, and `source script.sh`?
+
+#### 📌 Short Explanation
+A classic question that checks whether you understand subshells and environment.
+
+#### ✅ Answer
+- `./script.sh` and `bash script.sh` run in a **new child shell** (changes don't affect the parent).
+- `source script.sh` (or `. script.sh`) runs **in the current shell**, so variables, `cd`, and `export` persist.
+
+#### 📖 Detailed Explanation
+
+| Method | Needs `+x`? | Runs in | Variables persist in parent? |
+|--------|-------------|---------|------------------------------|
+| `./script.sh` | ✅ Yes | Child shell (uses shebang) | ❌ No |
+| `bash script.sh` | ❌ No | Child shell | ❌ No |
+| `source script.sh` | ❌ No | **Current shell** | ✅ Yes |
+
+**🔹 Example**
+```bash
+# env.sh
+export APP_ENV=prod
+cd /opt/app
+```
+```bash
+bash env.sh;   echo $APP_ENV     # (empty) – child shell exited
+source env.sh; echo $APP_ENV     # prod – and current directory changed
+```
+
+**🔹 Use cases:** `source` for loading environment files (`source .env`), activating Python venvs (`source venv/bin/activate`).
+
+**🔹 Subshell trap**
+```bash
+count=0
+echo "a" | while read -r x; do count=$((count+1)); done
+echo $count     # 0  → pipeline loop ran in a subshell
+```
+Fix: use process substitution: `while read -r x; do ...; done < <(echo "a")`.
+
+<br>
+
+---
+
+### Q7. What is the difference between `grep`, `sed`, and `awk`? When do you use each?
+
+#### 📌 Short Explanation
+Text-processing tools are central to Linux/DevOps work.
+
+#### ✅ Answer
+- **`grep`** — search/filter lines matching a pattern
+- **`sed`** — stream editor for substitution, deletion, and line edits
+- **`awk`** — column/field-based processing with logic and calculations
+
+#### 📖 Detailed Explanation
+
+| Tool | Best for | Example |
+|------|----------|---------|
+| `grep` | Finding lines | `grep -i "error" app.log` |
+| `sed` | Find/replace, delete lines | `sed -i 's/8080/9090/g' app.conf` |
+| `awk` | Columns, aggregation, reports | `awk '{print $1, $9}' access.log` |
+
+**🔹 grep**
+```bash
+grep -rn "TODO" ./src            # recursive with line numbers
+grep -v "DEBUG" app.log          # invert match
+grep -E "ERROR|WARN" app.log     # extended regex
+grep -c "500" access.log         # count matches
+```
+
+**🔹 sed**
+```bash
+sed -n '10,20p' file             # print lines 10–20
+sed '/^#/d' file                 # delete comment lines
+sed -i.bak 's/old/new/g' file    # in-place edit with backup
+```
+
+**🔹 awk**
+```bash
+awk -F: '{print $1}' /etc/passwd                 # usernames
+awk '{sum+=$3} END {print "Total:", sum}' data   # sum a column
+awk '$9 == 500 {print $1}' access.log            # IPs with 500 status
+df -h | awk '$5+0 > 80 {print $6, $5}'           # filesystems above 80%
+```
+
+**🔹 Other useful tools:** `cut`, `sort`, `uniq`, `tr`, `xargs`, `jq` (JSON), `find`.
+
+<br>
+
+---
+
+### Q8. How do you loop over files and read a file line by line safely? Scenario: process a CSV of servers.
+
+#### 📌 Short Explanation
+Looping and file-reading patterns are used in almost every automation script.
+
+#### ✅ Answer
+Use `for` for lists/globs and `while IFS= read -r line` for reading files line by line (preserves spaces and backslashes).
+
+#### 📖 Detailed Explanation
+
+**🔹 for loops**
+```bash
+for f in /var/log/*.log; do
+  echo "Processing $f"
+done
+
+for i in {1..5}; do echo "$i"; done
+
+for ((i=0; i<5; i++)); do echo "$i"; done
+```
+
+**🔹 while loop to read lines**
+```bash
+while IFS= read -r line; do
+  echo "Line: $line"
+done < input.txt
+```
+
+**🔹 Scenario: servers.csv (`name,ip,env`)**
+```bash
+#!/bin/bash
+set -euo pipefail
+
+while IFS=, read -r name ip env; do
+  [[ "$name" == "name" ]] && continue          # skip header
+  if ping -c1 -W1 "$ip" &>/dev/null; then
+    echo "$name ($env) - UP"
+  else
+    echo "$name ($env) - DOWN"
+  fi
+done < servers.csv
+```
+
+**🔹 Common mistakes**
+- ❌ `for line in $(cat file)` — splits on whitespace, breaks lines containing spaces
+- ❌ Forgetting `-r` → backslashes are interpreted
+- ❌ Piping into `while` and expecting variable changes to persist (subshell issue)
+
+**🔹 Loop controls:** `break`, `continue`; `until` loops until a condition becomes true.
+
+<br>
+
+---
+
+### Q9. What are functions and local variables in Bash? What is the difference between `return` and `exit`?
+
+#### 📌 Short Explanation
+Tests modular scripting and variable scope.
+
+#### ✅ Answer
+Functions group reusable logic. Variables are **global by default**, so use **`local`** inside functions. **`return`** exits the function (with a status); **`exit`** terminates the entire script.
+
+#### 📖 Detailed Explanation
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+log() {
+  local level="$1"; shift
+  echo "$(date '+%F %T') [$level] $*"
+}
+
+check_disk() {
+  local mount="$1" threshold="${2:-80}"
+  local usage
+  usage=$(df --output=pcent "$mount" | tail -1 | tr -dc '0-9')
+  if (( usage >= threshold )); then
+    return 1
+  fi
+  return 0
+}
+
+if ! check_disk / 85; then
+  log WARN "Root filesystem is almost full"
+  exit 2
+fi
+log INFO "Disk OK"
+```
+
+| Keyword | Effect |
+|---------|--------|
+| `return N` | Leaves the **function** with status N (0–255) |
+| `exit N` | Terminates the **script** with status N |
+| `local var` | Variable scoped to the function |
+
+**🔹 Returning data:** functions return only a numeric status; **print** values and capture with `$(func)`.
+```bash
+get_ip() { hostname -I | awk '{print $1}'; }
+ip=$(get_ip)
+```
+
+<br>
+
+---
+
+### Q10. How do arrays and associative arrays work in Bash?
+
+#### 📌 Short Explanation
+Tests data-structure usage in scripts, e.g., looping over services or environment maps.
+
+#### ✅ Answer
+Bash supports **indexed arrays** and **associative arrays** (Bash 4+, declared with `declare -A`).
+
+#### 📖 Detailed Explanation
+
+**🔹 Indexed array**
+```bash
+services=(nginx sshd docker)
+
+echo "${services[0]}"          # nginx
+echo "${#services[@]}"         # 3
+services+=(cron)               # append
+
+for s in "${services[@]}"; do
+  systemctl is-active --quiet "$s" && echo "$s: running" || echo "$s: stopped"
+done
+```
+
+**🔹 Associative array**
+```bash
+declare -A ports=( [web]=80 [api]=8080 [db]=5432 )
+
+for name in "${!ports[@]}"; do
+  echo "$name -> ${ports[$name]}"
+done
+
+[[ -v ports[web] ]] && echo "web is defined"
+```
+
+**🔹 Useful operations**
+
+| Syntax | Meaning |
+|--------|---------|
+| `${arr[@]}` | All elements |
+| `${!arr[@]}` | All indexes / keys |
+| `${#arr[@]}` | Number of elements |
+| `${arr[@]:1:2}` | Slice |
+| `unset arr[1]` | Remove element |
+
+**🔹 Read command output into an array**
+```bash
+mapfile -t files < <(find /var/log -name "*.log" -mtime +7)
+```
+
+<br>
+
+---
+
+### Q11. How do you handle errors in Bash? Explain `trap`, cleanup, and `set -e` pitfalls.
+
+#### 📌 Short Explanation
+Reliable scripts clean up after themselves and report failures clearly.
+
+#### ✅ Answer
+Use **`trap`** to run cleanup/handlers on `EXIT`, `ERR`, or signals; check exit codes explicitly; and send errors to **stderr**.
+
+#### 📖 Detailed Explanation
+
+**🔹 Cleanup with `trap`**
+```bash
+#!/bin/bash
+set -euo pipefail
+
+TMP_DIR=$(mktemp -d)
+cleanup() {
+  rm -rf "$TMP_DIR"
+  echo "Cleaned up $TMP_DIR"
+}
+trap cleanup EXIT                         # always runs, even on error/exit
+
+trap 'echo "Error on line $LINENO" >&2' ERR
+trap 'echo "Interrupted"; exit 130' INT TERM
+```
+
+**🔹 Explicit error checks**
+```bash
+if ! cp "$src" "$dest"; then
+  echo "Copy failed" >&2
+  exit 1
+fi
+
+command -v aws >/dev/null 2>&1 || { echo "aws CLI not installed" >&2; exit 1; }
+```
+
+**🔹 `set -e` pitfalls**
+- Not triggered inside `if`, `while`, or on the left side of `&&`/`||`
+- Doesn't catch failures within command substitution assigned with `local x=$(cmd)` (declare and assign separately)
+- A failing command in a pipeline is hidden unless `pipefail` is set
+
+**🔹 Retry pattern**
+```bash
+retry() {
+  local n=0 max=5 delay=3
+  until "$@"; do
+    (( ++n >= max )) && { echo "Failed after $max attempts" >&2; return 1; }
+    sleep "$delay"
+  done
+}
+retry curl -fsS https://example.com/health
+```
+
+<br>
+
+---
+
+### Q12. Scenario: Write a script that alerts when disk usage exceeds 80%.
+
+#### 📌 Short Explanation
+A very common practical interview task combining `df`, `awk`, loops, and alerts.
+
+#### ✅ Answer
+Parse `df` output, compare each filesystem with a threshold, and send an email or webhook alert. Schedule it with cron.
+
+#### 📖 Detailed Explanation
+
+**🔹 `disk_alert.sh`**
+```bash
+#!/bin/bash
+set -euo pipefail
+
+THRESHOLD=${1:-80}
+HOST=$(hostname)
+ALERTS=""
+
+while read -r usage mount; do
+  usage=${usage%\%}
+  if (( usage >= THRESHOLD )); then
+    ALERTS+="Filesystem ${mount} is at ${usage}% on ${HOST}"$'\n'
+  fi
+done < <(df -hP -x tmpfs -x devtmpfs | awk 'NR>1 {print $5, $6}')
+
+if [[ -n "$ALERTS" ]]; then
+  echo "$ALERTS"
+  echo "$ALERTS" | mail -s "Disk usage alert on ${HOST}" ops@example.com
+  # Or Slack: curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"$ALERTS\"}" "$SLACK_WEBHOOK"
+fi
+```
+
+**🔹 Schedule (every 15 minutes)**
+```bash
+*/15 * * * * /opt/scripts/disk_alert.sh 80 >> /var/log/disk_alert.log 2>&1
+```
+
+**🔹 Next steps when alerted:** `du -xh / --max-depth=1 | sort -h | tail`, check large logs, `lsof +L1` for deleted-but-open files.
+
+<br>
+
+---
+
+### Q13. Scenario: Write a backup script that archives a directory, uploads to S3, and keeps only the last 7 local backups.
+
+#### 📌 Short Explanation
+Combines variables, archiving, AWS CLI, rotation, error handling, and logging.
+
+#### ✅ Answer
+Create a timestamped `tar.gz`, upload with `aws s3 cp`, verify success, and delete older local backups.
+
+#### 📖 Detailed Explanation
+
+**🔹 `backup.sh`**
+```bash
+#!/bin/bash
+set -euo pipefail
+
+SRC_DIR="/var/www/app"
+BACKUP_DIR="/backups"
+BUCKET="s3://my-company-backups/app"
+RETENTION=7
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+ARCHIVE="${BACKUP_DIR}/app_${TIMESTAMP}.tar.gz"
+
+log() { echo "$(date '+%F %T') $*"; }
+trap 'log "Backup FAILED"; exit 1' ERR
+
+mkdir -p "$BACKUP_DIR"
+
+log "Creating archive $ARCHIVE"
+tar -czf "$ARCHIVE" -C "$(dirname "$SRC_DIR")" "$(basename "$SRC_DIR")"
+
+log "Uploading to S3"
+aws s3 cp "$ARCHIVE" "${BUCKET}/" --only-show-errors
+
+log "Removing local backups beyond last ${RETENTION}"
+ls -1t "${BACKUP_DIR}"/app_*.tar.gz | tail -n +$((RETENTION + 1)) | xargs -r rm -f
+
+log "Backup completed successfully"
+```
+
+**🔹 Notes**
+- Run as a **least-privilege IAM role** (instance profile), not with hardcoded keys
+- Use **S3 lifecycle rules** for remote retention
+- Verify with `tar -tzf` or compare checksums, and test **restores** regularly
+
+<br>
+
+---
+
+### Q14. Scenario: Find the top 10 IP addresses hitting your web server from an access log.
+
+#### 📌 Short Explanation
+A favorite log-analysis question that tests pipelines.
+
+#### ✅ Answer
+Extract the IP column, sort, count unique occurrences, sort by count, and take the top 10.
+
+#### 📖 Detailed Explanation
+
+**🔹 One-liner**
+```bash
+awk '{print $1}' /var/log/nginx/access.log | sort | uniq -c | sort -nr | head -10
+```
+
+**🔹 How it works**
+
+| Step | Purpose |
+|------|---------|
+| `awk '{print $1}'` | Extract the client IP (first field) |
+| `sort` | Group identical IPs together (needed for `uniq`) |
+| `uniq -c` | Count occurrences |
+| `sort -nr` | Sort numerically, highest first |
+| `head -10` | Top 10 |
+
+**🔹 Variations**
+```bash
+# Top URLs returning 404
+awk '$9 == 404 {print $7}' access.log | sort | uniq -c | sort -nr | head
+
+# Requests per status code
+awk '{print $9}' access.log | sort | uniq -c | sort -nr
+
+# Requests in the last hour (log date format dependent)
+grep "$(date -d '1 hour ago' '+%d/%b/%Y:%H')" access.log | wc -l
+
+# Top IPs from a compressed log
+zcat access.log.2.gz | awk '{print $1}' | sort | uniq -c | sort -nr | head
+```
+
+> 💡 Use `fail2ban`, WAF rate limiting, or Security Group/NACL deny rules to block abusive IPs.
+
+<br>
+
+---
+
+### Q15. Scenario: How do you debug a Bash script that misbehaves? What is ShellCheck?
+
+#### 📌 Short Explanation
+Tests your debugging approach and tooling knowledge.
+
+#### ✅ Answer
+Use **`bash -x`** or `set -x` to trace execution, `bash -n` to check syntax, and **ShellCheck** to catch common bugs before running.
+
+#### 📖 Detailed Explanation
+
+**🔹 Debug modes**
+```bash
+bash -n script.sh        # syntax check only (no execution)
+bash -x script.sh        # trace every command with expanded values
+bash -v script.sh        # print lines as they are read
+```
+
+**🔹 Targeted tracing inside a script**
+```bash
+set -x     # start tracing
+risky_function
+set +x     # stop tracing
+```
+
+**🔹 Make traces readable**
+```bash
+export PS4='+ ${BASH_SOURCE}:${LINENO}: '
+```
+
+**🔹 ShellCheck**
+```bash
+shellcheck script.sh
+```
+Catches issues like unquoted variables, useless `cat`, wrong `[ ]` usage, and unsafe `rm`.
+
+**🔹 Typical debugging checklist**
+- Missing quotes around variables? · Wrong shebang or Windows line endings (`dos2unix`)? · `set -u` triggering on unset variables? · Relying on a different PATH or environment than expected?
+- Add `echo`/`log` statements and check `$?` after critical commands
+- Run **ShellCheck in CI** to prevent regressions
+
+<br>
+
+---
+
+### Q16. Scenario: Ensure only one instance of a script runs at a time (prevent overlapping cron runs).
+
+#### 📌 Short Explanation
+Overlapping runs can corrupt data or exhaust resources. Tests knowledge of locking.
+
+#### ✅ Answer
+Use **`flock`** (preferred), or a lock file with PID checks and a `trap` to clean it up.
+
+#### 📖 Detailed Explanation
+
+**🔹 Using `flock` inside the script**
+```bash
+#!/bin/bash
+exec 200>/var/lock/myjob.lock
+flock -n 200 || { echo "Another instance is running. Exiting."; exit 1; }
+
+# ... job logic ...
+```
+
+**🔹 Using `flock` directly in cron**
+```bash
+*/5 * * * * flock -n /var/lock/myjob.lock /opt/scripts/myjob.sh
+```
+
+**🔹 Lock file with PID check (portable)**
+```bash
+LOCK=/tmp/myjob.pid
+if [[ -f "$LOCK" ]] && kill -0 "$(cat "$LOCK")" 2>/dev/null; then
+  echo "Already running (PID $(cat "$LOCK"))"; exit 1
+fi
+echo $$ > "$LOCK"
+trap 'rm -f "$LOCK"' EXIT
+```
+
+**🔹 Why `flock` is better:** the lock is released automatically by the kernel if the process dies, avoiding **stale lock files**.
+
+<br>
+
+---
+
+### Q17. Scenario: A script works when run manually but fails from cron. Why?
+
+#### 📌 Short Explanation
+One of the most common real-world scripting problems.
+
+#### ✅ Answer
+Cron runs with a **minimal environment** (limited `PATH`, no profile, different working directory and shell). Use **absolute paths**, set the environment explicitly, and log output.
+
+#### 📖 Detailed Explanation
+
+**🔹 Cron syntax**
+```text
+┌───────── minute (0–59)
+│ ┌─────── hour (0–23)
+│ │ ┌───── day of month (1–31)
+│ │ │ ┌─── month (1–12)
+│ │ │ │ ┌─ day of week (0–7, Sun=0 or 7)
+* * * * *  command
+```
+
+**🔹 Typical causes**
+
+| Cause | Fix |
+|-------|-----|
+| **Limited `PATH`** (`/usr/bin:/bin`) | Use full paths or set `PATH=` at the top of the crontab/script |
+| **Env vars not loaded** (`.bashrc`/`.bash_profile` not sourced) | `source` needed files in the script |
+| **Relative paths / wrong working dir** | `cd /opt/app \|\| exit 1` or use absolute paths |
+| **Different shell** (`/bin/sh`) | Set `SHELL=/bin/bash` in crontab |
+| **Permissions / wrong user** | Check the crontab owner (`crontab -l -u user`) and file permissions |
+| **No output visible** | Redirect: `>> /var/log/job.log 2>&1` |
+| **`%` character in the command** | Escape as `\%` |
+| **Script not executable / missing shebang** | `chmod +x`, add `#!/bin/bash` |
+
+**🔹 Debug approach**
+```bash
+* * * * * env > /tmp/cron_env.txt          # inspect cron's environment
+grep CRON /var/log/syslog                  # Debian/Ubuntu
+journalctl -u cron                         # systemd
+```
+
+**🔹 cron vs at vs systemd timers**
+
+| Tool | Use |
+|------|-----|
+| `cron` | Recurring schedules |
+| `at` | One-time scheduled job |
+| `systemd timer` | Modern alternative with logging, dependencies, and calendar events |
 
 <br>
 
@@ -5297,7 +9878,7 @@ Kubelet → CRI → Container Runtime (e.g., containerd)
 <br>
 
 <a id="python"></a>
-# 🐍 TOPIC 11: PYTHON
+# 🐍 TOPIC 12: PYTHON
 
 > Common DevOps packages and practical automation scripts.
 
@@ -5516,6 +10097,8 @@ except requests.exceptions.RequestException as e:
 
 <div align="center">
 
-**DevOps Interviews 🚀**
+
+
+**DevOps Interview Guide 🚀**
 
 </div>
