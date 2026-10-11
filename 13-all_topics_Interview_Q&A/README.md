@@ -4,7 +4,7 @@
 
 ### Topic-wise Questions, Answers, Differences, Scenarios & Command Examples
 
-`Git` · `Linux` · `Networking` · `CI/CD` · `Terraform` · `Docker` · `Kubernetes` · `Observability` · `AWS` · `Ansible` · `Bash` · `Python`
+`AWS` ·`Git` · `Linux` · `Networking` · `CI/CD` · `Terraform` · `Docker` · `Kubernetes` · `Observability` ·  `Ansible` · `Bash` · `Python`
 
 </div>
 
